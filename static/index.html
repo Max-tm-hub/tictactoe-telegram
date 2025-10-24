@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Крестики-нолики</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; font-family:system-ui, -apple-system, sans-serif; }
+        body { padding:16px; background:#f9f9f9; max-width:500px; margin:0 auto; }
+        h1 { text-align:center; margin:16px 0; color:#333; }
+        #stats { text-align:center; margin:10px 0; font-size:0.9rem; color:#555; }
+        .status { text-align:center; padding:12px; background:#fff; border-radius:10px; margin:16px 0; box-shadow:0 2px 4px rgba(0,0,0,0.05); }
+        .board { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; max-width:320px; margin:0 auto; }
+        .cell {
+            aspect-ratio:1; background:#fff; border-radius:12px; display:flex; align-items:center; justify-content:center;
+            font-size:2.2rem; font-weight:bold; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.1);
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        .cell:hover { transform: scale(1.03); }
+        .cell.x { color:#e74c3c; }
+        .cell.o { color:#3498db; }
+        .cell.winner { animation: pulse 1.5s infinite; background:#e6f7ee !important; }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.4); }
+            70% { box-shadow: 0 0 0 12px rgba(40, 167, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+        }
+        .cell.x, .cell.o { animation: popIn 0.3s ease-out; }
+        @keyframes popIn {
+            0% { transform: scale(0); opacity:0; }
+            70% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity:1; }
+        }
+        .btn {
+            width:100%; padding:14px; margin:10px 0; border:none; border-radius:12px;
+            background:linear-gradient(135deg, #667eea, #764ba2); color:white; font-size:1.1rem; font-weight:600;
+            cursor:pointer; box-shadow:0 4px 8px rgba(0,0,0,0.1);
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow:0 6px 12px rgba(0,0,0,0.15); }
+        #chatBox {
+            margin-top:20px; display:none; background:#fff; padding:16px; border-radius:12px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.1);
+        }
+        #chatMessages {
+            height:140px; overflow-y:auto; border:1px solid #eee; padding:10px; border-radius:8px;
+            background:#fafafa; margin-bottom:10px; font-size:0.95rem;
+        }
+        #chatInput {
+            width:70%; padding:10px; border:1px solid #ddd; border-radius:8px;
+        }
+        #sendBtn {
+            width:28%; padding:10px; background:#28a745; color:white; border:none; border-radius:8px;
+            margin-left:2%;
+        }
+    </style>
+    <audio id="move-sound" src="/mini/sounds/move.mp3" preload="auto"></audio>
+    <audio id="win-sound" src="/mini/sounds/win.mp3" preload="auto"></audio>
+    <audio id="draw-sound" src="/mini/sounds/draw.mp3" preload="auto"></audio>
+</head>
+<body>
+    <h1>Крестики-нолики</h1>
+    <div id="stats"></div>
+    <div id="status" class="status">Загрузка...</div>
+    <div id="board" class="board"></div>
+    <button id="createBtn" class="btn">Создать игру</button>
+    <button id="copyLink" class="btn" style="display:none;">Скопировать ссылку</button>
+    <button id="restart" class="btn" style="display:none;">Новая игра</button>
+
+    <div id="chatBox">
+        <div id="chatMessages"></div>
+        <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
+        <button id="sendBtn">Отправить</button>
+    </div>
+
+    <script>
+        const Telegram = window.Telegram.WebApp;
+        Telegram.expand();
+        const BACKEND = "https://ВАШ_АДРЕС.onrender.com"; // ← ЗАМЕНИТЕ!
+        let gameId = null;
+        let gameWs = null;
+        let chatWs = null;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const startParam = urlParams.get('start');
+
+        const statusDiv = document.getElementById('status');
+        const boardDiv = document.getElementById('board');
+        const statsDiv = document.getElementById('stats');
+        const createBtn = document.getElementById('createBtn');
+        const copyLinkBtn = document.getElementById('copyLink');
+        const restartBtn = document.getElementById('restart');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const chatMessages = document.getElementById('chatMessages');
+
+        function playSound(id) {
+            const audio = document.getElementById(id + '-sound');
+            if (audio) {
+                audio.currentTime = 0;
+                audio.play().catch(e => console.log("Sound blocked"));
+            }
+        }
+
+        function connectGameWs(gameId) {
+            gameWs = new WebSocket(`${BACKEND.replace('http', 'ws')}/ws/${gameId}`);
+            gameWs.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                if (msg.type === "game") {
+                    renderGame(msg);
+                } else if (msg.type === "chat") {
+                    chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            };
+        }
+
+        function connectChatWs(gameId) {
+            chatWs = new WebSocket(`${BACKEND.replace('http', 'ws')}/ws/chat/${gameId}`);
+        }
+
+        async function loadStats() {
+            try {
+                const res = await fetch(`${BACKEND}/api/stats`, {
+                    headers: {'X-Init-Data': Telegram.initData}
+                });
+                const stats = await res.json();
+                statsDiv.innerHTML = `🏆 ${stats.wins} побед | 💀 ${stats.losses} поражений | 🤝 ${stats.draws} ничьих`;
+            } catch (e) { console.log("Stats error"); }
+        }
+
+        async function createGame() {
+            const res = await fetch(`${BACKEND}/api/create-game`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({initData: Telegram.initData})
+            });
+            const data = await res.json();
+            gameId = data.game_id;
+            statusDiv.innerHTML = `Скопируйте ссылку:<br><b>${data.invite_link}</b>`;
+            createBtn.style.display = 'none';
+            copyLinkBtn.style.display = 'block';
+            connectGameWs(gameId);
+        }
+
+        async function joinGame(gameId) {
+            await fetch(`${BACKEND}/api/join-game`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({initData: Telegram.initData, game_id: gameId})
+            });
+            this.gameId = gameId;
+            connectGameWs(gameId);
+            connectChatWs(gameId);
+        }
+
+        function renderGame(game) {
+            const user = JSON.parse(decodeURIComponent(Telegram.initDataUnsafe.user));
+            const myId = user.id;
+            const isCreator = myId == game.creator_id;
+            const mySymbol = isCreator ? 'X' : 'O';
+            const opponentName = game.opponent_name || 'Ожидание...';
+            const creatorName = game.creator_name;
+
+            if (game.winner === 'draw') {
+                statusDiv.textContent = "Ничья!";
+                playSound('draw');
+            } else if (game.winner) {
+                const winnerName = game.winner === 'X' ? creatorName : opponentName;
+                statusDiv.textContent = `Победил ${winnerName}!`;
+                playSound('win');
+            } else if (!game.opponent_id) {
+                statusDiv.textContent = "Ожидание второго игрока...";
+            } else if (game.current_turn == myId) {
+                statusDiv.textContent = "Ваш ход!";
+            } else {
+                statusDiv.textContent = "Ход соперника...";
+            }
+
+            boardDiv.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    const val = game.board[i][j];
+                    if (val) {
+                        cell.textContent = val;
+                        cell.classList.add(val.toLowerCase());
+                        if (game.winner && (
+                            (game.winner === 'X' && val === 'X') ||
+                            (game.winner === 'O' && val === 'O')
+                        )) {
+                            cell.classList.add('winner');
+                        }
+                    }
+                    if (!game.winner && game.current_turn == myId && !val) {
+                        cell.onclick = () => makeMove(i, j);
+                    }
+                    boardDiv.appendChild(cell);
+                }
+            }
+
+            if (game.opponent_id) {
+                document.getElementById('chatBox').style.display = 'block';
+            }
+        }
+
+        async function makeMove(row, col) {
+            await fetch(`${BACKEND}/api/make-move`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({initData: Telegram.initData, game_id: gameId, row, col})
+            });
+            playSound('move');
+        }
+
+        copyLinkBtn.onclick = () => {
+            const link = statusDiv.querySelector('b').textContent;
+            navigator.clipboard.writeText(link);
+            Telegram.showPopup({title:"✅ Скопировано!", message:"Отправьте другу в Telegram!"});
+        };
+
+        restartBtn.onclick = () => window.location.reload();
+
+        sendBtn.onclick = sendMessage;
+        chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+
+        function sendMessage() {
+            const text = chatInput.value.trim();
+            if (text && chatWs && chatWs.readyState === WebSocket.OPEN) {
+                chatWs.send(JSON.stringify({initData: Telegram.initData, text: text}));
+                chatInput.value = '';
+            }
+        }
+
+        // Запуск
+        if (startParam && startParam.length === 8) {
+            statusDiv.textContent = "Присоединение к игре...";
+            joinGame(startParam);
+            restartBtn.style.display = 'block';
+        } else {
+            createBtn.style.display = 'block';
+            loadStats();
+        }
+    </script>
+</body>
+</html>
