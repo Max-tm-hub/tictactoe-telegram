@@ -62,9 +62,10 @@ async def game_websocket(websocket: WebSocket, game_id: str):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        active_connections[game_id].remove(websocket)
-        if not active_connections[game_id]:
-            del active_connections[game_id]
+        if game_id in active_connections:
+            active_connections[game_id].remove(websocket)
+            if not active_connections[game_id]:
+                del active_connections[game_id]
 
 # === WebSocket: чат ===
 @app.websocket("/ws/chat/{game_id}")
@@ -75,14 +76,12 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
             data = await websocket.receive_text()
             msg = json.loads(data)
             user = validate_init_data(msg["initData"], BOT_TOKEN)
-            # Сохраняем сообщение
             supabase.table("messages").insert({
                 "game_id": game_id,
                 "user_id": user["id"],
                 "username": user["first_name"],
                 "text": msg["text"][:100]
             }).execute()
-            # Рассылаем
             full_msg = {
                 "type": "chat",
                 "username": user["first_name"],
@@ -100,14 +99,18 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
 
 # === Утилита: рассылка обновления игры ===
 async def broadcast_game_update(game_id: str):
-    game = supabase.table("games").select("*").eq("id", game_id).execute().data[0]
-    message = json.dumps({"type": "game", **game})
-    if game_id in active_connections:
-        for ws in active_connections[game_id][:]:
-            try:
-                await ws.send_text(message)
-            except:
-                active_connections[game_id].remove(ws)
+    try:
+        game = supabase.table("games").select("*").eq("id", game_id).execute().data[0]
+        message = json.dumps({"type": "game", **game})
+        if game_id in active_connections:
+            for ws in active_connections[game_id][:]:
+                try:
+                    await ws.send_text(message)
+                except:
+                    if ws in active_connections[game_id]:
+                        active_connections[game_id].remove(ws)
+    except Exception as e:
+        print(f"Broadcast error: {e}")
 
 # === API: создать игру ===
 @app.post("/api/create-game")
@@ -130,8 +133,11 @@ async def join_game(request: Request):
     data = await request.json()
     user = validate_init_data(data["initData"], BOT_TOKEN)
     game_id = data["game_id"]
-    game = supabase.table("games").select("*").eq("id", game_id).execute().data
-    if not game or game[0]["opponent_id"] or game[0]["creator_id"] == user["id"]:
+    game_list = supabase.table("games").select("*").eq("id", game_id).execute().data
+    if not game_list:
+        raise HTTPException(404, "Игра не найдена")
+    game = game_list[0]
+    if game["opponent_id"] or game["creator_id"] == user["id"]:
         raise HTTPException(400, "Невозможно присоединиться")
     supabase.table("games").update({
         "opponent_id": user["id"],
@@ -147,7 +153,10 @@ async def make_move(request: Request):
     user = validate_init_data(data["initData"], BOT_TOKEN)
     game_id = data["game_id"]
     row, col = data["row"], data["col"]
-    game = supabase.table("games").select("*").eq("id", game_id).execute().data[0]
+    game_list = supabase.table("games").select("*").eq("id", game_id).execute().data
+    if not game_list:
+        raise HTTPException(404, "Игра не найдена")
+    game = game_list[0]
     if game["winner"] or game["current_turn"] != user["id"]:
         raise HTTPException(400, "Не ваш ход")
     symbol = "X" if user["id"] == game["creator_id"] else "O"
