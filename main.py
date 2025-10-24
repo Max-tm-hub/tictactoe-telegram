@@ -188,23 +188,27 @@ async def make_move(request: Request):
 
     # Обновляем статистику
     if winner:
-        def update_stats(uid, name, field):
-            res = supabase.table("stats").select("*").eq("user_id", uid).execute()
-            if res.
-                supabase.table("stats").update({field: res.data[0][field] + 1}).eq("user_id", uid).execute()
-            else:
-                supabase.table("stats").insert({"user_id": uid, "username": name, field: 1}).execute()
-        c_id, o_id = game["creator_id"], game["opponent_id"]
-        c_name, o_name = game["creator_name"], game["opponent_name"] or "Unknown"
-        if winner == "X":
-            update_stats(c_id, c_name, "wins")
-            if o_id: update_stats(o_id, o_name, "losses")
-        elif winner == "O" and o_id:
-            update_stats(o_id, o_name, "wins")
-            update_stats(c_id, c_name, "losses")
-        elif winner == "draw":
-            update_stats(c_id, c_name, "draws")
-            if o_id: update_stats(o_id, o_name, "draws")
+    def update_stats(uid, name, field):
+        res = supabase.table("stats").select("*").eq("user_id", uid).execute()
+        if res.data:  # ← ИСПРАВЛЕНО: было "if res."
+            supabase.table("stats").update({field: res.data[0][field] + 1}).eq("user_id", uid).execute()
+        else:
+            supabase.table("stats").insert({"user_id": uid, "username": name, field: 1}).execute()
+    
+    c_id, o_id = game["creator_id"], game["opponent_id"]
+    c_name, o_name = game["creator_name"], game["opponent_name"] or "Unknown"
+    
+    if winner == "X":
+        update_stats(c_id, c_name, "wins")
+        if o_id:
+            update_stats(o_id, o_name, "losses")
+    elif winner == "O" and o_id:
+        update_stats(o_id, o_name, "wins")
+        update_stats(c_id, c_name, "losses")
+    elif winner == "draw":
+        update_stats(c_id, c_name, "draws")
+        if o_id:
+            update_stats(o_id, o_name, "draws")
 
     await broadcast_game_update(game_id)
     return {"status": "ok"}
