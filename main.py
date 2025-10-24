@@ -218,7 +218,7 @@ async def make_move(request: Request):
 async def get_stats(request: Request):
     user = validate_init_data(request.headers.get("X-Init-Data"), BOT_TOKEN)
     res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-    if res.
+    if res.data:
         return res.data[0]
     return {"wins": 0, "losses": 0, "draws": 0, "username": user["first_name"]}
 
