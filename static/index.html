@@ -54,6 +54,7 @@
             margin-left:2%;
         }
     </style>
+    <!-- Если у вас нет звуков — закомментируйте или удалите эти строки -->
     <audio id="move-sound" src="/mini/sounds/move.mp3" preload="auto"></audio>
     <audio id="win-sound" src="/mini/sounds/win.mp3" preload="auto"></audio>
     <audio id="draw-sound" src="/mini/sounds/draw.mp3" preload="auto"></audio>
@@ -76,7 +77,8 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        const BACKEND = "https://tictactoe-telegram.onrender.com"; // ← ЗАМЕНИТЕ!
+        const BACKEND = "https://tictactoe-telegram.onrender.com"; // ✅ Исправлено: без пробелов
+
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
