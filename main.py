@@ -23,7 +23,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 active_connections: dict[str, list[WebSocket]] = {}
 
 # === Валидация initData от Telegram ===
-def validate_init_data(init_ str, bot_token: str) -> dict:
+def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
         data = {k: v for k, v in pairs if k != 'hash'}
