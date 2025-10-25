@@ -22,7 +22,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # === Хранилище WebSocket-соединений ===
 active_connections: dict[str, list[WebSocket]] = {}
 
-# === Валидация initData от Telegram ===
+# === Вспомогательные функции ===
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
@@ -33,8 +33,34 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
         if h.hexdigest() != data.get('hash'):
             raise HTTPException(status_code=403, detail="Invalid hash")
         return json.loads(data["user"])
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid init data")
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=f"Invalid init data: {e}")
+
+def get_game_by_id(game_id: str):
+    return supabase.table("games").select("*").eq("id", game_id).execute().data
+
+def update_game(game_id: str, data: dict):
+    supabase.table("games").update(data).eq("id", game_id).execute()
+
+def update_stats(user_id: str, username: str, field: str):
+    res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
+    if res.data:
+        current_value = res.data[0][field]
+        supabase.table("stats").update({field: current_value + 1}).eq("user_id", user_id).execute()
+    else:
+        supabase.table("stats").insert({
+            "user_id": user_id,
+            "username": username,
+            field: 1
+        }).execute()
+
+def check_win(board: list, symbol: str) -> bool:
+    for i in range(3):
+        if all(board[i][j] == symbol for j in range(3)) or all(board[j][i] == symbol for j in range(3)):
+            return True
+    if all(board[i][i] == symbol for i in range(3)) or all(board[i][2-i] == symbol for i in range(3)):
+        return True
+    return False
 
 # === FastAPI ===
 @asynccontextmanager
@@ -100,7 +126,10 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
 # === Утилита: рассылка обновления игры ===
 async def broadcast_game_update(game_id: str):
     try:
-        game = supabase.table("games").select("*").eq("id", game_id).execute().data[0]
+        game = get_game_by_id(game_id)
+        if not game:
+            return
+        game = game[0]
         message = json.dumps({"type": "game", **game})
         if game_id in active_connections:
             for ws in active_connections[game_id][:]:
@@ -122,7 +151,8 @@ async def create_game(request: Request):
         "id": game_id,
         "creator_id": user["id"],
         "creator_name": user["first_name"],
-        "current_turn": user["id"]
+        "current_turn": user["id"],
+        "board": [[ "", "", "" ], [ "", "", "" ], [ "", "", "" ]]
     }).execute()
     invite_link = f"https://t.me/Alex_tictactoeBot?start={game_id}"
     return {"game_id": game_id, "invite_link": invite_link}
@@ -133,16 +163,16 @@ async def join_game(request: Request):
     data = await request.json()
     user = validate_init_data(data["initData"], BOT_TOKEN)
     game_id = data["game_id"]
-    game_list = supabase.table("games").select("*").eq("id", game_id).execute().data
+    game_list = get_game_by_id(game_id)
     if not game_list:
         raise HTTPException(404, "Игра не найдена")
     game = game_list[0]
-    if game["opponent_id"] or game["creator_id"] == user["id"]:
+    if game.get("opponent_id") or game["creator_id"] == user["id"]:
         raise HTTPException(400, "Невозможно присоединиться")
-    supabase.table("games").update({
+    update_game(game_id, {
         "opponent_id": user["id"],
         "opponent_name": user["first_name"]
-    }).eq("id", game_id).execute()
+    })
     await broadcast_game_update(game_id)
     return {"status": "ok"}
 
@@ -153,72 +183,44 @@ async def make_move(request: Request):
     user = validate_init_data(data["initData"], BOT_TOKEN)
     game_id = data["game_id"]
     row, col = data["row"], data["col"]
-    game_list = supabase.table("games").select("*").eq("id", game_id).execute().data
+    game_list = get_game_by_id(game_id)
     if not game_list:
         raise HTTPException(404, "Игра не найдена")
     game = game_list[0]
-    if game["winner"] or game["current_turn"] != user["id"]:
+    if game.get("winner") or game["current_turn"] != user["id"]:
         raise HTTPException(400, "Не ваш ход")
     symbol = "X" if user["id"] == game["creator_id"] else "O"
     board = game["board"]
     if board[row][col] != "":
         raise HTTPException(400, "Ячейка занята")
     board[row][col] = symbol
-
-    def check_win(b, s):
-        for i in range(3):
-            if all(b[i][j] == s for j in range(3)): return True
-            if all(b[j][i] == s for j in range(3)): return True
-        if all(b[i][i] == s for i in range(3)): return True
-        if all(b[i][2-i] == s for i in range(3)): return True
-        return False
-
     winner = None
     if check_win(board, symbol):
         winner = symbol
     elif all(cell != "" for row in board for cell in row):
         winner = "draw"
-
     next_turn = None if winner else (game["opponent_id"] if user["id"] == game["creator_id"] else game["creator_id"])
-    supabase.table("games").update({
+    update_game(game_id, {
         "board": board,
         "current_turn": next_turn,
         "winner": winner
-    }).eq("id", game_id).execute()
-
-    # Обновляем статистику
+    })
     if winner:
-    def update_stats(supabase, uid, name, field):
-    res = supabase.table("stats").select("*").eq("user_id", uid).execute()
-    if res.data:
-        current_value = res.data[0][field]
-        supabase.table("stats").update({field: current_value + 1}).eq("user_id", uid).execute()
-    else:
-        supabase.table("stats").insert({
-            "user_id": uid,
-            "username": name,
-            field: 1
-        }).execute()
-
-# === Внутри /api/make-move, после определения winner ===
-if winner:
-    c_id = game["creator_id"]
-    o_id = game["opponent_id"]
-    c_name = game["creator_name"]
-    o_name = game["opponent_name"] or "Unknown"
-
-    if winner == "X":
-        update_stats(supabase, c_id, c_name, "wins")
-        if o_id:
-            update_stats(supabase, o_id, o_name, "losses")
-    elif winner == "O" and o_id:
-        update_stats(supabase, o_id, o_name, "wins")
-        update_stats(supabase, c_id, c_name, "losses")
-    elif winner == "draw":
-        update_stats(supabase, c_id, c_name, "draws")
-        if o_id:
-            update_stats(supabase, o_id, o_name, "draws")
-
+        c_id = game["creator_id"]
+        o_id = game.get("opponent_id")
+        c_name = game["creator_name"]
+        o_name = game.get("opponent_name", "Unknown")
+        if winner == "X":
+            update_stats(c_id, c_name, "wins")
+            if o_id:
+                update_stats(o_id, o_name, "losses")
+        elif winner == "O" and o_id:
+            update_stats(o_id, o_name, "wins")
+            update_stats(c_id, c_name, "losses")
+        elif winner == "draw":
+            update_stats(c_id, c_name, "draws")
+            if o_id:
+                update_stats(o_id, o_name, "draws")
     await broadcast_game_update(game_id)
     return {"status": "ok"}
 
