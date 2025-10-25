@@ -57,7 +57,7 @@
 </head>
 <body>
     <h1>Крестики-нолики</h1>
-    <div id="stats"></div>
+    <div id="stats">🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих</div>
     <div id="status" class="status">Загрузка...</div>
     <div id="board" class="board"></div>
     <button id="createBtn" class="btn">Создать игру</button>
@@ -121,10 +121,14 @@
                 const res = await fetch(`${BACKEND}/api/stats`, {
                     headers: {'X-Init-Data': Telegram.initData}
                 });
+                if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
                 const stats = await res.json();
-                statsDiv.innerHTML = `🏆 ${stats.wins} побед | 💀 ${stats.losses} поражений | 🤝 ${stats.draws} ничьих`;
+                statsDiv.innerHTML = `🏆 ${stats.wins || 0} побед | 💀 ${stats.losses || 0} поражений | 🤝 ${stats.draws || 0} ничьих`;
             } catch (e) {
                 console.error("Stats error:", e);
+                statsDiv.innerHTML = `🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих`;
             }
         }
 
@@ -135,17 +139,20 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({initData: Telegram.initData})
                 });
+                if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
                 const data = await res.json();
                 if (data.game_id) {
                     gameId = data.game_id;
-                    statusDiv.innerHTML = `Скопируйте ссылку:<br><b>${data.invite_link}</b>`;
+                    statusDiv.innerHTML = `Скопируйте ссылку:<br><a href="${data.invite_link}">${data.invite_link}</a>`;
                     createBtn.style.display = 'none';
                     copyLinkBtn.style.display = 'block';
                     connectGameWs(gameId);
                 }
             } catch (error) {
                 console.error("Create game error:", error);
-                Telegram.showPopup({title: "Ошибка", message: "Не удалось создать игру!"});
+                Telegram.WebApp.showPopup({title: "Ошибка", message: "Не удалось создать игру!"});
             }
         }
 
@@ -156,6 +163,9 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({initData: Telegram.initData, game_id: gameId})
                 });
+                if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
                 const data = await res.json();
                 if (data.status === "ok") {
                     connectGameWs(gameId);
@@ -163,7 +173,7 @@
                 }
             } catch (error) {
                 console.error("Join game error:", error);
-                Telegram.showPopup({title: "Ошибка", message: "Не удалось присоединиться к игре!"});
+                Telegram.WebApp.showPopup({title: "Ошибка", message: "Не удалось присоединиться к игре!"});
             }
         }
 
@@ -222,20 +232,23 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({initData: Telegram.initData, game_id: gameId, row, col})
                 });
+                if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
                 const data = await res.json();
                 if (data.status !== "ok") {
-                    Telegram.showPopup({title: "Ошибка", message: "Не удалось сделать ход!"});
+                    Telegram.WebApp.showPopup({title: "Ошибка", message: "Не удалось сделать ход!"});
                 }
             } catch (error) {
                 console.error("Make move error:", error);
-                Telegram.showPopup({title: "Ошибка", message: "Не удалось сделать ход!"});
+                Telegram.WebApp.showPopup({title: "Ошибка", message: "Не удалось сделать ход!"});
             }
         }
 
         copyLinkBtn.onclick = () => {
-            const link = statusDiv.querySelector('b').textContent;
+            const link = statusDiv.querySelector('a').href;
             navigator.clipboard.writeText(link);
-            Telegram.showPopup({title:"✅ Скопировано!", message:"Отправьте другу в Telegram!"});
+            Telegram.WebApp.showPopup({title:"✅ Скопировано!", message:"Отправьте другу в Telegram!"});
         };
 
         restartBtn.onclick = () => window.location.reload();
@@ -257,7 +270,9 @@
             restartBtn.style.display = 'block';
         } else {
             createBtn.style.display = 'block';
-            loadStats();
+            loadStats().then(() => {
+                statusDiv.textContent = "Готово!";
+            });
         }
 
         createBtn.onclick = createGame;
