@@ -7,7 +7,7 @@ import logging
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client
+from supabase import create_client, Client
 from contextlib import asynccontextmanager
 from aiogram import Bot
 from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
@@ -22,7 +22,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = None
 
 # Хранилище WebSocket-соединений
 active_connections: dict[str, list[WebSocket]] = {}
@@ -30,14 +30,18 @@ active_connections: dict[str, list[WebSocket]] = {}
 # Вспомогательные функции
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
+        logger.info(f"Received initData: {init_data}")
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
         data = {k: v for k, v in pairs if k != 'hash'}
         data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data.items()))
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         h = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256)
         if h.hexdigest() != data.get('hash'):
+            logger.error(f"Hash mismatch. Expected: {h.hexdigest()}, Got: {data.get('hash')}")
             raise HTTPException(status_code=403, detail="Invalid hash")
-        return json.loads(data["user"])
+        user_data = json.loads(data["user"])
+        logger.info(f"Validated user data: {user_data}")
+        return user_data
     except Exception as e:
         logger.error(f"Validation error: {e}")
         raise HTTPException(status_code=403, detail=f"Invalid init data: {e}")
@@ -71,9 +75,13 @@ def check_win(board: list, symbol: str) -> bool:
 # FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global supabase
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     yield
+    if supabase:
+        await supabase.postgrest.aclose()
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
@@ -92,7 +100,6 @@ async def game_websocket(websocket: WebSocket, game_id: str):
         active_connections[game_id] = []
     active_connections[game_id].append(websocket)
     try:
-        # Отправляем текущее состояние игры при подключении
         game = get_game_by_id(game_id)
         if game:
             await websocket.send_text(json.dumps({"type": "game", **game[0]}))
@@ -254,7 +261,9 @@ async def make_move(request: Request):
 @app.get("/api/stats")
 async def get_stats(request: Request):
     try:
-        user = validate_init_data(request.headers.get("X-Init-Data"), BOT_TOKEN)
+        init_data = request.headers.get("X-Init-Data")
+        logger.info(f"Received initData for stats: {init_data}")
+        user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
         if res.data:
             return res.data[0]
