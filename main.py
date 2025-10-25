@@ -4,6 +4,7 @@ import hmac
 import json
 import time
 import logging
+import urllib.parse
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +33,7 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         logger.info(f"Received initData: {init_data}")
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
-        data = {k: v for k, v in pairs if k != 'hash'}
+        data = {k: urllib.parse.unquote(v) for k, v in pairs if k != 'hash'}
         data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data.items()))
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         h = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256)
