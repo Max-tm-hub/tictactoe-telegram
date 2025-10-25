@@ -63,25 +63,20 @@
     <button id="createBtn" class="btn">Создать игру</button>
     <button id="copyLink" class="btn" style="display:none;">Скопировать ссылку</button>
     <button id="restart" class="btn" style="display:none;">Новая игра</button>
-
     <div id="chatBox">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
         <button id="sendBtn">Отправить</button>
     </div>
-
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
         const BACKEND = "https://tictactoe-telegram.onrender.com";
-
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
-
         const urlParams = new URLSearchParams(window.location.search);
         const startParam = urlParams.get('start');
-
         const statusDiv = document.getElementById('status');
         const boardDiv = document.getElementById('board');
         const statsDiv = document.getElementById('stats');
@@ -93,7 +88,10 @@
         const chatMessages = document.getElementById('chatMessages');
 
         function connectGameWs(gameId) {
-            gameWs = new WebSocket(`${BACKEND.replace('http', 'ws')}/ws/${gameId}`);
+            gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
+            gameWs.onopen = () => {
+                console.log("Game WebSocket connected");
+            };
             gameWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === "game") {
@@ -103,10 +101,19 @@
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
             };
+            gameWs.onerror = (error) => {
+                console.error("Game WebSocket error:", error);
+            };
         }
 
         function connectChatWs(gameId) {
-            chatWs = new WebSocket(`${BACKEND.replace('http', 'ws')}/ws/chat/${gameId}`);
+            chatWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/chat/${gameId}`);
+            chatWs.onopen = () => {
+                console.log("Chat WebSocket connected");
+            };
+            chatWs.onerror = (error) => {
+                console.error("Chat WebSocket error:", error);
+            };
         }
 
         async function loadStats() {
@@ -116,32 +123,48 @@
                 });
                 const stats = await res.json();
                 statsDiv.innerHTML = `🏆 ${stats.wins} побед | 💀 ${stats.losses} поражений | 🤝 ${stats.draws} ничьих`;
-            } catch (e) { console.log("Stats error"); }
+            } catch (e) {
+                console.error("Stats error:", e);
+            }
         }
 
         async function createGame() {
-            const res = await fetch(`${BACKEND}/api/create-game`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({initData: Telegram.initData})
-            });
-            const data = await res.json();
-            gameId = data.game_id;
-            statusDiv.innerHTML = `Скопируйте ссылку:<br><b>${data.invite_link}</b>`;
-            createBtn.style.display = 'none';
-            copyLinkBtn.style.display = 'block';
-            connectGameWs(gameId);
+            try {
+                const res = await fetch(`${BACKEND}/api/create-game`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({initData: Telegram.initData})
+                });
+                const data = await res.json();
+                if (data.game_id) {
+                    gameId = data.game_id;
+                    statusDiv.innerHTML = `Скопируйте ссылку:<br><b>${data.invite_link}</b>`;
+                    createBtn.style.display = 'none';
+                    copyLinkBtn.style.display = 'block';
+                    connectGameWs(gameId);
+                }
+            } catch (error) {
+                console.error("Create game error:", error);
+                Telegram.showPopup({title: "Ошибка", message: "Не удалось создать игру!"});
+            }
         }
 
         async function joinGame(gameId) {
-            await fetch(`${BACKEND}/api/join-game`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({initData: Telegram.initData, game_id: gameId})
-            });
-            this.gameId = gameId;
-            connectGameWs(gameId);
-            connectChatWs(gameId);
+            try {
+                const res = await fetch(`${BACKEND}/api/join-game`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({initData: Telegram.initData, game_id: gameId})
+                });
+                const data = await res.json();
+                if (data.status === "ok") {
+                    connectGameWs(gameId);
+                    connectChatWs(gameId);
+                }
+            } catch (error) {
+                console.error("Join game error:", error);
+                Telegram.showPopup({title: "Ошибка", message: "Не удалось присоединиться к игре!"});
+            }
         }
 
         function renderGame(game) {
@@ -187,18 +210,26 @@
                     boardDiv.appendChild(cell);
                 }
             }
-
             if (game.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
             }
         }
 
         async function makeMove(row, col) {
-            await fetch(`${BACKEND}/api/make-move`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({initData: Telegram.initData, game_id: gameId, row, col})
-            });
+            try {
+                const res = await fetch(`${BACKEND}/api/make-move`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({initData: Telegram.initData, game_id: gameId, row, col})
+                });
+                const data = await res.json();
+                if (data.status !== "ok") {
+                    Telegram.showPopup({title: "Ошибка", message: "Не удалось сделать ход!"});
+                }
+            } catch (error) {
+                console.error("Make move error:", error);
+                Telegram.showPopup({title: "Ошибка", message: "Не удалось сделать ход!"});
+            }
         }
 
         copyLinkBtn.onclick = () => {
@@ -228,6 +259,8 @@
             createBtn.style.display = 'block';
             loadStats();
         }
+
+        createBtn.onclick = createGame;
     </script>
 </body>
 </html>
