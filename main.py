@@ -32,15 +32,30 @@ active_connections: dict[str, list[WebSocket]] = {}
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         logger.info(f"Received initData: {init_data}")
+        # Разделяем на пары
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
-        data = {k: urllib.parse.unquote(v) for k, v in pairs if k != 'hash'}
-        data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data.items()))
+        # Извлекаем hash отдельно
+        data_dict = {}
+        received_hash = None
+        for k, v in pairs:
+            if k == 'hash':
+                received_hash = urllib.parse.unquote(v)
+            else:
+                data_dict[k] = urllib.parse.unquote(v)
+
+        if received_hash is None:
+            raise ValueError("Hash not found in initData")
+
+        # Формируем строку для проверки
+        data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data_dict.items()))
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-        h = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256)
-        if h.hexdigest() != data.get('hash'):
-            logger.error(f"Hash mismatch. Expected: {h.hexdigest()}, Got: {data.get('hash')}")
+        computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+        if computed_hash != received_hash:
+            logger.error(f"Hash mismatch. Expected: {computed_hash}, Got: {received_hash}")
             raise HTTPException(status_code=403, detail="Invalid hash")
-        user_data = json.loads(data["user"])
+
+        user_data = json.loads(data_dict["user"])
         logger.info(f"Validated user data: {user_data}")
         return user_data
     except Exception as e:
