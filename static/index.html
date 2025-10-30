@@ -104,6 +104,9 @@
             gameWs.onerror = (error) => {
                 console.error("Game WebSocket error:", error);
             };
+            gameWs.onclose = () => {
+                statusDiv.textContent = "Соединение потеряно. Перезагрузите страницу.";
+            };
         }
 
         function connectChatWs(gameId) {
