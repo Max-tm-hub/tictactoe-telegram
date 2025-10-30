@@ -5,6 +5,7 @@ import json
 import time
 import logging
 import urllib.parse
+from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,7 @@ from supabase import create_client, Client
 from contextlib import asynccontextmanager
 from aiogram import Bot
 from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+import weakref
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -23,18 +25,16 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-supabase: Client = None
+supabase: Optional[Client] = None
 
-# Хранилище WebSocket-соединений
-active_connections: dict[str, list[WebSocket]] = {}
+# Хранилище WebSocket-соединений с использованием слабых ссылок
+active_connections: Dict[str, List[weakref.ref]] = {}
 
 # Вспомогательные функции
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         logger.info(f"Received initData: {init_data}")
-        # Разделяем на пары
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
-        # Извлекаем hash отдельно
         data_dict = {}
         received_hash = None
         for k, v in pairs:
@@ -45,6 +45,11 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
 
         if received_hash is None:
             raise ValueError("Hash not found in initData")
+
+        # Проверка времени действия initData
+        auth_date = int(data_dict.get("auth_date", 0))
+        if time.time() - auth_date > 86400:  # 24 часа
+            raise HTTPException(status_code=403, detail="Init data expired")
 
         # Формируем строку для проверки
         data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data_dict.items()))
@@ -69,6 +74,10 @@ def update_game(game_id: str, data: dict):
     supabase.table("games").update(data).eq("id", game_id).execute()
 
 def update_stats(user_id: str, username: str, field: str):
+    if not user_id:
+        logger.error("User ID is missing")
+        return
+
     res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
     if res.data:
         current_value = res.data[0][field]
@@ -114,7 +123,8 @@ async def game_websocket(websocket: WebSocket, game_id: str):
     await websocket.accept()
     if game_id not in active_connections:
         active_connections[game_id] = []
-    active_connections[game_id].append(websocket)
+    active_connections[game_id].append(weakref.ref(websocket))
+
     try:
         game = get_game_by_id(game_id)
         if game:
@@ -123,7 +133,7 @@ async def game_websocket(websocket: WebSocket, game_id: str):
             await websocket.receive_text()
     except WebSocketDisconnect:
         if game_id in active_connections:
-            active_connections[game_id].remove(websocket)
+            active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
             if not active_connections[game_id]:
                 del active_connections[game_id]
 
@@ -149,11 +159,13 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
                 "timestamp": time.time()
             }
             if game_id in active_connections:
-                for ws in active_connections[game_id][:]:
-                    try:
-                        await ws.send_text(json.dumps(full_msg))
-                    except Exception as e:
-                        logger.error(f"WebSocket send error: {e}")
+                for ref in active_connections[game_id][:]:
+                    ws = ref()
+                    if ws:
+                        try:
+                            await ws.send_text(json.dumps(full_msg))
+                        except Exception as e:
+                            logger.error(f"WebSocket send error: {e}")
     except WebSocketDisconnect:
         pass
 
@@ -166,13 +178,15 @@ async def broadcast_game_update(game_id: str):
         game = game[0]
         message = json.dumps({"type": "game", **game})
         if game_id in active_connections:
-            for ws in active_connections[game_id][:]:
-                try:
-                    await ws.send_text(message)
-                except Exception as e:
-                    logger.error(f"Broadcast error: {e}")
-                    if ws in active_connections[game_id]:
-                        active_connections[game_id].remove(ws)
+            for ref in active_connections[game_id][:]:
+                ws = ref()
+                if ws:
+                    try:
+                        await ws.send_text(message)
+                    except Exception as e:
+                        logger.error(f"Broadcast error: {e}")
+                        if ref in active_connections[game_id]:
+                            active_connections[game_id].remove(ref)
     except Exception as e:
         logger.error(f"Broadcast error: {e}")
 
