@@ -27,7 +27,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 supabase: Optional[Client] = None
 
-# Хранилище WebSocket-соединений с использованием слабых ссылок
+# Хранилище WebSocket-соединений
 active_connections: Dict[str, List[weakref.ref]] = {}
 
 # Вспомогательные функции
@@ -46,12 +46,10 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
         if received_hash is None:
             raise ValueError("Hash not found in initData")
 
-        # Проверка времени действия initData
         auth_date = int(data_dict.get("auth_date", 0))
         if time.time() - auth_date > 86400:  # 24 часа
             raise HTTPException(status_code=403, detail="Init data expired")
 
-        # Формируем строку для проверки
         data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data_dict.items()))
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
