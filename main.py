@@ -16,7 +16,10 @@ from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboa
 import weakref
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Настройки из переменных окружения
@@ -33,7 +36,7 @@ active_connections: Dict[str, List[weakref.ref]] = {}
 # Вспомогательные функции
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
-        logger.info(f"Received initData: {init_data}")
+        logger.info(f"Validating initData")
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
         data_dict = {}
         received_hash = None
@@ -66,26 +69,39 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
         raise HTTPException(status_code=403, detail=f"Invalid init data: {e}")
 
 def get_game_by_id(game_id: str):
-    return supabase.table("games").select("*").eq("id", game_id).execute().data
+    try:
+        logger.info(f"Fetching game with ID: {game_id}")
+        result = supabase.table("games").select("*").eq("id", game_id).execute()
+        return result.data
+    except Exception as e:
+        logger.error(f"Error fetching game: {e}")
+        return None
 
 def update_game(game_id: str, data: dict):
-    supabase.table("games").update(data).eq("id", game_id).execute()
+    try:
+        logger.info(f"Updating game {game_id} with data: {data}")
+        supabase.table("games").update(data).eq("id", game_id).execute()
+    except Exception as e:
+        logger.error(f"Error updating game: {e}")
 
 def update_stats(user_id: str, username: str, field: str):
-    if not user_id:
-        logger.error("User ID is missing")
-        return
+    try:
+        if not user_id:
+            logger.error("User ID is missing")
+            return
 
-    res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-    if res.data:
-        current_value = res.data[0][field]
-        supabase.table("stats").update({field: current_value + 1}).eq("user_id", user_id).execute()
-    else:
-        supabase.table("stats").insert({
-            "user_id": user_id,
-            "username": username,
-            field: 1
-        }).execute()
+        res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
+        if res.data:
+            current_value = res.data[0][field]
+            supabase.table("stats").update({field: current_value + 1}).eq("user_id", user_id).execute()
+        else:
+            supabase.table("stats").insert({
+                "user_id": user_id,
+                "username": username,
+                field: 1
+            }).execute()
+    except Exception as e:
+        logger.error(f"Error updating stats: {e}")
 
 def check_win(board: list, symbol: str) -> bool:
     for i in range(3):
@@ -193,7 +209,7 @@ async def broadcast_game_update(game_id: str):
 async def create_game(request: Request):
     try:
         data = await request.json()
-        logger.info(f"Received create-game request: {data}")
+        logger.info(f"Creating new game for user")
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = hashlib.sha256(f"{user['id']}{time.time()}".encode()).hexdigest()[:8]
         supabase.table("games").insert({
@@ -298,7 +314,7 @@ async def make_move(request: Request):
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        logger.info(f"Received initData for stats: {init_data}")
+        logger.info(f"Fetching stats")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
         if res.data:
