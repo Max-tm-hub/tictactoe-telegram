@@ -103,7 +103,7 @@ async def lifespan(app: FastAPI):
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     yield
-    if supabase:
+    if supabase and hasattr(supabase, 'postgrest') and supabase.postgrest:
         await supabase.postgrest.aclose()
 
 app = FastAPI(lifespan=lifespan)
@@ -201,7 +201,8 @@ async def create_game(request: Request):
             "creator_id": user["id"],
             "creator_name": user["first_name"],
             "current_turn": user["id"],
-            "board": [["", "", ""], ["", "", ""], ["", "", ""]]
+            "board": [["", "", ""], ["", "", ""], ["", "", ""]],
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
         invite_link = f"https://t.me/Alex_tictactoeBot?start={game_id}"
         logger.info(f"Game created: {game_id}, invite_link: {invite_link}")
@@ -217,18 +218,25 @@ async def join_game(request: Request):
         data = await request.json()
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
+
         game_list = get_game_by_id(game_id)
         if not game_list:
-            raise HTTPException(404, "Игра не найдена")
+            raise HTTPException(status_code=404, detail="Игра не найдена")
+
         game = game_list[0]
         if game.get("opponent_id") or game["creator_id"] == user["id"]:
-            raise HTTPException(400, "Невозможно присоединиться")
+            raise HTTPException(status_code=400, detail="Невозможно присоединиться к игре")
+
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"]
         })
+
         await broadcast_game_update(game_id)
         return {"status": "ok"}
+
+    except HTTPException as e:
+        raise e
     except Exception as e:
         logger.error(f"Join game error: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
