@@ -35,7 +35,7 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
 supabase: Optional[Client] = None
 active_connections: Dict[str, List[weakref.ref]] = {}
 
-# --- Валидация initData (исключаем 'hash') ---
+# --- Валидация initData ---
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
@@ -323,7 +323,7 @@ async def get_stats(request: Request):
         logger.error(f"Stats error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# --- Telegram Webhook (с поддержкой /start <game_id>) ---
+# --- Telegram Webhook ---
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
