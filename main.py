@@ -192,8 +192,8 @@ async def broadcast_game_update(game_id: str):
                 if ws:
                     try:
                         await ws.send_text(msg)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.error(f"Error sending message to WebSocket: {e}")
     except Exception as e:
         logger.error(f"Broadcast error: {e}")
 
@@ -231,11 +231,16 @@ async def join_game(request: Request):
         game = game_list[0]
         if game.get("opponent_id") or str(game["creator_id"]) == str(user["id"]):
             raise HTTPException(status_code=400, detail="Невозможно присоединиться")
+
+        # Обновляем данные игры
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"]
         })
+
+        # Отправляем обновленное состояние игры всем подключенным клиентам
         await broadcast_game_update(game_id)
+
         return {"status": "ok"}
     except HTTPException:
         raise
