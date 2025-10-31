@@ -69,18 +69,13 @@
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
         <button id="sendBtn">Отправить</button>
     </div>
-
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-
-        // ⚠️ УБЕРИТЕ ЛИШНИЕ ПРОБЕЛЫ В КОНЦЕ!
-        const BACKEND = "https://tictactoe-telegram.onrender.com"; // ← без пробелов!
-
+        const BACKEND = "https://tictactoe-telegram.onrender.com";
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
-
         const statusDiv = document.getElementById('status');
         const boardDiv = document.getElementById('board');
         const statsDiv = document.getElementById('stats');
@@ -89,12 +84,9 @@
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
-
-        // Получаем start_param из initData (а не из URL!)
         const initDataUnsafe = Telegram.initDataUnsafe;
         const startParam = initDataUnsafe?.start_param || null;
 
-        // --- WebSocket подключения ---
         function connectGameWs(gameId) {
             gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
             gameWs.onmessage = (event) => {
@@ -115,7 +107,6 @@
             chatWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/chat/${gameId}`);
         }
 
-        // --- API ---
         async function loadStats() {
             try {
                 const res = await fetch(`${BACKEND}/api/stats`, {
@@ -180,7 +171,6 @@
             }
         }
 
-        // --- UI ---
         function renderEmptyBoard() {
             boardDiv.innerHTML = '';
             for (let i = 0; i < 3; i++) {
@@ -199,7 +189,6 @@
             const mySymbol = isCreator ? 'X' : 'O';
             const opponentName = game.opponent_name || 'Ожидание...';
             const creatorName = game.creator_name;
-
             if (game.winner === 'draw') {
                 statusDiv.textContent = "Ничья!";
             } else if (game.winner) {
@@ -212,7 +201,6 @@
             } else {
                 statusDiv.textContent = "Ход соперника...";
             }
-
             boardDiv.innerHTML = '';
             for (let i = 0; i < 3; i++) {
                 for (let j = 0; j < 3; j++) {
@@ -232,13 +220,11 @@
                     boardDiv.appendChild(cell);
                 }
             }
-
             if (game.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
             }
         }
 
-        // --- Копирование ссылки ---
         copyLinkBtn.onclick = () => {
             const linkEl = inviteLinkDiv.querySelector('a');
             if (!linkEl) return;
@@ -250,7 +236,6 @@
             });
         };
 
-        // --- Чат ---
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
             if (text && chatWs?.readyState === WebSocket.OPEN) {
@@ -258,9 +243,9 @@
                 chatInput.value = '';
             }
         };
+
         chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendBtn.click(); };
 
-        // --- Инициализация ---
         document.addEventListener('DOMContentLoaded', async () => {
             await loadStats();
             if (startParam && typeof startParam === 'string' && startParam.length === 8) {
