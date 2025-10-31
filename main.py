@@ -36,7 +36,7 @@ supabase: Optional[Client] = None
 active_connections: Dict[str, List[weakref.ref]] = {}
 
 # --- Валидация initData (исключаем 'hash') ---
-def validate_init_data(init_ str, bot_token: str) -> dict:
+def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
         data_dict = {}
@@ -46,24 +46,17 @@ def validate_init_data(init_ str, bot_token: str) -> dict:
                 received_hash = urllib.parse.unquote(v)
             else:
                 data_dict[k] = urllib.parse.unquote(v)
-
         if received_hash is None:
             raise ValueError("Hash not found")
-
         auth_date = int(data_dict.get("auth_date", 0))
         if time.time() - auth_date > 86400:
             raise HTTPException(status_code=403, detail="Init data expired")
-
-        # Исключаем 'hash' из строки проверки
         data_check_pairs = [(k, v) for k, v in data_dict.items() if k != 'hash']
         data_check_string = '\n'.join(f"{k}={v}" for k, v in sorted(data_check_pairs))
-
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
         if computed_hash != received_hash:
             raise HTTPException(status_code=403, detail="Invalid hash")
-
         user_data = json.loads(data_dict["user"])
         logger.info(f"Validated user ID: {user_data.get('id')}")
         return user_data
@@ -80,7 +73,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"DB error (get game): {e}")
         return None
 
-def update_game(game_id: str,  dict):
+def update_game(game_id: str, data: dict):
     try:
         supabase.table("games").update(data).eq("id", game_id).execute()
     except Exception as e:
@@ -91,7 +84,7 @@ def update_stats(user_id: str, username: str, field: str):
         if not user_id:
             return
         res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-        if res.
+        if res.data:
             current = res.data[0][field]
             supabase.table("stats").update({field: current + 1}).eq("user_id", user_id).execute()
         else:
@@ -119,7 +112,6 @@ async def lifespan(app: FastAPI):
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     yield
-    # Supabase sync client doesn't need closing
 
 app = FastAPI(lifespan=lifespan)
 
@@ -233,15 +225,12 @@ async def join_game(request: Request):
         data = await request.json()
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
-
         game_list = get_game_by_id(game_id)
         if not game_list:
             raise HTTPException(status_code=404, detail="Игра не найдена")
-
         game = game_list[0]
         if game.get("opponent_id") or str(game["creator_id"]) == str(user["id"]):
             raise HTTPException(status_code=400, detail="Невозможно присоединиться")
-
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"]
@@ -261,40 +250,32 @@ async def make_move(request: Request):
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         row, col = data["row"], data["col"]
-
         if not (0 <= row <= 2 and 0 <= col <= 2):
             raise HTTPException(status_code=400, detail="Invalid row/col")
-
         game_list = get_game_by_id(game_id)
         if not game_list:
             raise HTTPException(status_code=404, detail="Игра не найдена")
         game = game_list[0]
-
         if game.get("winner") or game["current_turn"] != user["id"]:
             raise HTTPException(status_code=400, detail="Не ваш ход")
-
         symbol = "X" if user["id"] == game["creator_id"] else "O"
         board = game["board"]
         if board[row][col] != "":
             raise HTTPException(status_code=400, detail="Ячейка занята")
-
         board[row][col] = symbol
         winner = None
         if check_win(board, symbol):
             winner = symbol
         elif all(cell != "" for r in board for cell in r):
             winner = "draw"
-
         next_turn = None if winner else (
             game["opponent_id"] if user["id"] == game["creator_id"] else game["creator_id"]
         )
-
         update_game(game_id, {
             "board": board,
             "current_turn": next_turn,
             "winner": winner
         })
-
         if winner:
             c_id = game["creator_id"]
             o_id = game.get("opponent_id")
@@ -311,7 +292,6 @@ async def make_move(request: Request):
                 update_stats(c_id, c_name, "draws")
                 if o_id:
                     update_stats(o_id, o_name, "draws")
-
         await broadcast_game_update(game_id)
         return {"status": "ok"}
     except HTTPException:
@@ -324,11 +304,11 @@ async def make_move(request: Request):
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        if not init_
+        if not init_data:
             raise HTTPException(status_code=400, detail="Missing X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.
+        if res.data:
             return res.data[0]
         return {
             "user_id": user["id"],
@@ -350,13 +330,10 @@ async def telegram_webhook(request: Request):
         bot = Bot(token=BOT_TOKEN)
         update_data = await request.json()
         update = Update(**update_data)
-
         if update.message and update.message.text:
             text = update.message.text.strip()
             user_id = update.message.from_user.id
-
             if text == "/start":
-                # Новый игрок — создаём новую игру
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(
                         text="Играть в Крестики-нолики",
@@ -364,15 +341,12 @@ async def telegram_webhook(request: Request):
                     )
                 ]])
                 await bot.send_message(user_id, "Нажмите, чтобы начать!", reply_markup=kb)
-
             elif text.startswith("/start "):
-                # Присоединение к существующей игре
                 game_id = text.split(" ", 1)[1].strip()
                 game_list = get_game_by_id(game_id)
                 if not game_list:
                     await bot.send_message(user_id, "❌ Игра не найдена.")
                     return {"ok": True}
-
                 game = game_list[0]
                 if game.get("opponent_id"):
                     await bot.send_message(user_id, "❌ Игра уже заполнена.")
@@ -380,9 +354,6 @@ async def telegram_webhook(request: Request):
                     await bot.send_message(user_id, "Вы — создатель игры. Открываю вашу игру...")
                 else:
                     await bot.send_message(user_id, "🎮 Присоединяйтесь к игре!")
-
-                # Важно: НЕ добавляем ?game_id в URL!
-                # Telegram автоматически передаст game_id как start_param
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(
                         text="Открыть игру",
@@ -390,7 +361,6 @@ async def telegram_webhook(request: Request):
                     )
                 ]])
                 await bot.send_message(user_id, "Нажмите кнопку ниже:", reply_markup=kb)
-
         return {"ok": True}
     except Exception as e:
         logger.error(f"Webhook error: {e}")
