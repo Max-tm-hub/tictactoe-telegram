@@ -63,7 +63,7 @@
     <div id="status" class="status">Создание игры...</div>
     <div id="board" class="board"></div>
     <div id="inviteLink"></div>
-    <button id="copyLinkBtn">Скопировать ссылку</button>
+    <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <div id="chatBox">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
@@ -72,7 +72,7 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        const BACKEND = "https://tictactoe-telegram.onrender.com";
+        const BACKEND = "https://tictactoe-telegram.onrender.com"; // Замените на ваш бэкенд
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
@@ -87,6 +87,7 @@
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
 
+        // Функция для подключения к WebSocket игры
         function connectGameWs(gameId) {
             gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
             gameWs.onopen = () => {
@@ -103,12 +104,14 @@
             };
             gameWs.onerror = (error) => {
                 console.error("Game WebSocket error:", error);
+                statusDiv.textContent = "Ошибка соединения. Попробуйте перезагрузить страницу.";
             };
             gameWs.onclose = () => {
                 statusDiv.textContent = "Соединение потеряно. Перезагрузите страницу.";
             };
         }
 
+        // Функция для подключения к WebSocket чата
         function connectChatWs(gameId) {
             chatWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/chat/${gameId}`);
             chatWs.onopen = () => {
@@ -119,6 +122,7 @@
             };
         }
 
+        // Загрузка статистики
         async function loadStats() {
             try {
                 const res = await fetch(`${BACKEND}/api/stats`, {
@@ -135,6 +139,7 @@
             }
         }
 
+        // Создание новой игры
         async function createGame() {
             try {
                 const res = await fetch(`${BACKEND}/api/create-game`, {
@@ -149,15 +154,19 @@
                 if (data.game_id) {
                     gameId = data.game_id;
                     inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a href="${data.invite_link}">${data.invite_link}</a>`;
+                    copyLinkBtn.style.display = 'block';
                     connectGameWs(gameId);
                     statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
+                    renderEmptyBoard();
                 }
             } catch (error) {
                 console.error("Create game error:", error);
+                statusDiv.textContent = "Ошибка создания игры. Попробуйте ещё раз.";
                 Telegram.WebApp.showPopup({title: "Ошибка", message: "Не удалось создать игру!"});
             }
         }
 
+        // Присоединение к игре
         async function joinGame(gameId) {
             try {
                 const res = await fetch(`${BACKEND}/api/join-game`, {
@@ -172,13 +181,28 @@
                 if (data.status === "ok") {
                     connectGameWs(gameId);
                     connectChatWs(gameId);
+                    statusDiv.textContent = "Вы присоединились к игре!";
                 }
             } catch (error) {
                 console.error("Join game error:", error);
+                statusDiv.textContent = "Ошибка присоединения к игре.";
                 Telegram.WebApp.showPopup({title: "Ошибка", message: "Не удалось присоединиться к игре!"});
             }
         }
 
+        // Отрисовка пустого поля
+        function renderEmptyBoard() {
+            boardDiv.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    boardDiv.appendChild(cell);
+                }
+            }
+        }
+
+        // Отрисовка игры
         function renderGame(game) {
             const user = JSON.parse(decodeURIComponent(Telegram.initDataUnsafe.user));
             const myId = user.id;
@@ -227,6 +251,7 @@
             }
         }
 
+        // Ход игрока
         async function makeMove(row, col) {
             try {
                 const res = await fetch(`${BACKEND}/api/make-move`, {
@@ -247,12 +272,14 @@
             }
         }
 
+        // Копирование ссылки
         copyLinkBtn.onclick = () => {
             const link = inviteLinkDiv.querySelector('a').href;
             navigator.clipboard.writeText(link);
             Telegram.WebApp.showPopup({title:"✅ Скопировано!", message:"Отправьте другу в Telegram!"});
         };
 
+        // Отправка сообщения в чат
         sendBtn.onclick = sendMessage;
         chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
 
@@ -264,16 +291,16 @@
             }
         }
 
-        // При загрузке страницы сразу создаём игру
-        createGame().then(() => {
-            loadStats();
+        // При загрузке страницы
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadStats();
+            if (startParam && startParam.length === 8) {
+                statusDiv.textContent = "Присоединение к игре...";
+                await joinGame(startParam);
+            } else {
+                await createGame();
+            }
         });
-
-        // Если перешли по ссылке с game_id, присоединяемся к игре
-        if (startParam && startParam.length === 8) {
-            statusDiv.textContent = "Присоединение к игре...";
-            joinGame(startParam);
-        }
     </script>
 </body>
 </html>
