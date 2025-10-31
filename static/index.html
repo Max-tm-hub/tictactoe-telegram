@@ -275,8 +275,14 @@
         // Копирование ссылки
         copyLinkBtn.onclick = () => {
             const link = inviteLinkDiv.querySelector('a').href;
-            navigator.clipboard.writeText(link);
-            Telegram.WebApp.showPopup({title:"✅ Скопировано!", message:"Отправьте другу в Telegram!"});
+            navigator.clipboard.writeText(link)
+                .then(() => {
+                    Telegram.WebApp.showPopup({title: "✅ Скопировано!", message: "Ссылка скопирована в буфер обмена!"});
+                })
+                .catch((err) => {
+                    console.error("Ошибка копирования: ", err);
+                    Telegram.WebApp.showPopup({title: "❌ Ошибка", message: "Не удалось скопировать ссылку!"});
+                });
         };
 
         // Отправка сообщения в чат
