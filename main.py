@@ -336,11 +336,11 @@ async def telegram_webhook(request: Request):
             if text == "/start":
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(
-                        text="Играть в Крестики-нолики",
+                        text="Создать новую игру",
                         web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html")
                     )
                 ]])
-                await bot.send_message(user_id, "Нажмите, чтобы начать!", reply_markup=kb)
+                await bot.send_message(user_id, "Нажмите, чтобы создать новую игру!", reply_markup=kb)
             elif text.startswith("/start "):
                 game_id = text.split(" ", 1)[1].strip()
                 game_list = get_game_by_id(game_id)
@@ -354,13 +354,15 @@ async def telegram_webhook(request: Request):
                     await bot.send_message(user_id, "Вы — создатель игры. Открываю вашу игру...")
                 else:
                     await bot.send_message(user_id, "🎮 Присоединяйтесь к игре!")
+
+                # Передаём game_id в WebApp через параметр startapp
                 kb = InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(
                         text="Открыть игру",
-                        web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html")
+                        web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}")
                     )
                 ]])
-                await bot.send_message(user_id, "Нажмите кнопку ниже:", reply_markup=kb)
+                await bot.send_message(user_id, "Нажмите кнопку ниже, чтобы присоединиться:", reply_markup=kb)
         return {"ok": True}
     except Exception as e:
         logger.error(f"Webhook error: {e}")
