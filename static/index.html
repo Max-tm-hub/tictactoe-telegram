@@ -38,6 +38,8 @@
             cursor:pointer; box-shadow:0 4px 8px rgba(0,0,0,0.1);
         }
         .btn:hover { transform: translateY(-2px); box-shadow:0 6px 12px rgba(0,0,0,0.15); }
+        #inviteLink { text-align:center; margin:10px 0; font-size:0.9rem; color:#555; word-break: break-all; }
+        #copyLinkBtn { width:100%; padding:10px; margin:10px 0; border:none; border-radius:12px; background:#28a745; color:white; font-size:1rem; font-weight:600; cursor:pointer; }
         #chatBox {
             margin-top:20px; display:none; background:#fff; padding:16px; border-radius:12px;
             box-shadow:0 2px 8px rgba(0,0,0,0.1);
@@ -58,11 +60,10 @@
 <body>
     <h1>Крестики-нолики</h1>
     <div id="stats">🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих</div>
-    <div id="status" class="status">Загрузка...</div>
+    <div id="status" class="status">Создание игры...</div>
     <div id="board" class="board"></div>
-    <button id="createBtn" class="btn">Создать игру</button>
-    <button id="copyLink" class="btn" style="display:none;">Скопировать ссылку</button>
-    <button id="restart" class="btn" style="display:none;">Новая игра</button>
+    <div id="inviteLink"></div>
+    <button id="copyLinkBtn">Скопировать ссылку</button>
     <div id="chatBox">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
@@ -80,9 +81,8 @@
         const statusDiv = document.getElementById('status');
         const boardDiv = document.getElementById('board');
         const statsDiv = document.getElementById('stats');
-        const createBtn = document.getElementById('createBtn');
-        const copyLinkBtn = document.getElementById('copyLink');
-        const restartBtn = document.getElementById('restart');
+        const inviteLinkDiv = document.getElementById('inviteLink');
+        const copyLinkBtn = document.getElementById('copyLinkBtn');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
@@ -148,10 +148,9 @@
                 const data = await res.json();
                 if (data.game_id) {
                     gameId = data.game_id;
-                    statusDiv.innerHTML = `Скопируйте ссылку:<br><a href="${data.invite_link}">${data.invite_link}</a>`;
-                    createBtn.style.display = 'none';
-                    copyLinkBtn.style.display = 'block';
+                    inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a href="${data.invite_link}">${data.invite_link}</a>`;
                     connectGameWs(gameId);
+                    statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
                 }
             } catch (error) {
                 console.error("Create game error:", error);
@@ -249,12 +248,10 @@
         }
 
         copyLinkBtn.onclick = () => {
-            const link = statusDiv.querySelector('a').href;
+            const link = inviteLinkDiv.querySelector('a').href;
             navigator.clipboard.writeText(link);
             Telegram.WebApp.showPopup({title:"✅ Скопировано!", message:"Отправьте другу в Telegram!"});
         };
-
-        restartBtn.onclick = () => window.location.reload();
 
         sendBtn.onclick = sendMessage;
         chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
@@ -267,18 +264,16 @@
             }
         }
 
+        // При загрузке страницы сразу создаём игру
+        createGame().then(() => {
+            loadStats();
+        });
+
+        // Если перешли по ссылке с game_id, присоединяемся к игре
         if (startParam && startParam.length === 8) {
             statusDiv.textContent = "Присоединение к игре...";
             joinGame(startParam);
-            restartBtn.style.display = 'block';
-        } else {
-            createBtn.style.display = 'block';
-            loadStats().then(() => {
-                statusDiv.textContent = "Готово!";
-            });
         }
-
-        createBtn.onclick = createGame;
     </script>
 </body>
 </html>
