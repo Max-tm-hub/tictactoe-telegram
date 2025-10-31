@@ -93,6 +93,9 @@
 
         function connectGameWs(gameId) {
             gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
+            gameWs.onopen = () => {
+                console.log("WebSocket connection established");
+            };
             gameWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 if (msg.type === "game") {
