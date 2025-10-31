@@ -193,6 +193,7 @@
             const mySymbol = isCreator ? 'X' : 'O';
             const opponentName = game.opponent_name || 'Ожидание...';
             const creatorName = game.creator_name;
+
             if (game.winner === 'draw') {
                 statusDiv.textContent = "Ничья!";
             } else if (game.winner) {
@@ -205,6 +206,7 @@
             } else {
                 statusDiv.textContent = "Ход соперника...";
             }
+
             boardDiv.innerHTML = '';
             for (let i = 0; i < 3; i++) {
                 for (let j = 0; j < 3; j++) {
