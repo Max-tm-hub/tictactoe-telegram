@@ -92,6 +92,7 @@
             gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
             gameWs.onopen = () => {
                 console.log("Game WebSocket connected");
+                statusDiv.textContent = "Подключено к игре!";
             };
             gameWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
@@ -104,10 +105,10 @@
             };
             gameWs.onerror = (error) => {
                 console.error("Game WebSocket error:", error);
-                statusDiv.textContent = "Ошибка соединения. Попробуйте перезагрузить страницу.";
+                statusDiv.textContent = "Ошибка соединения с игрой. Попробуйте перезагрузить страницу.";
             };
             gameWs.onclose = () => {
-                statusDiv.textContent = "Соединение потеряно. Перезагрузите страницу.";
+                statusDiv.textContent = "Соединение с игрой потеряно. Попробуйте перезагрузить страницу.";
             };
         }
 
@@ -274,7 +275,12 @@
 
         // Копирование ссылки
         copyLinkBtn.onclick = () => {
-            const link = inviteLinkDiv.querySelector('a').href;
+            const linkElement = inviteLinkDiv.querySelector('a');
+            if (!linkElement) {
+                Telegram.WebApp.showPopup({title: "Ошибка", message: "Ссылка не найдена!"});
+                return;
+            }
+            const link = linkElement.href;
             navigator.clipboard.writeText(link)
                 .then(() => {
                     Telegram.WebApp.showPopup({title: "✅ Скопировано!", message: "Ссылка скопирована в буфер обмена!"});
