@@ -8,7 +8,7 @@
     <style>
         * { margin:0; padding:0; box-sizing:border-box; font-family:system-ui, -apple-system, sans-serif; }
         body { padding:16px; background:#f9f9f9; max-width:500px; margin:0 auto; }
-        h1 { text-align:center; margin:16px 0; color:#33; }
+        h1 { text-align:center; margin:16px 0; color:#333; }
         #stats { text-align:center; margin:10px 0; font-size:0.9rem; color:#555; }
         .status { text-align:center; padding:12px; background:#fff; border-radius:10px; margin:16px 0; box-shadow:0 2px 4px rgba(0,0,0,0.05); }
         .board { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; max-width:320px; margin:0 auto; }
@@ -85,7 +85,11 @@
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
         const initDataUnsafe = Telegram.initDataUnsafe;
-        const startParam = initDataUnsafe?.start_param || null;
+
+        // Получаем startParam из URL или initData
+        const urlParams = new URLSearchParams(window.location.search);
+        const startParamFromURL = urlParams.get('startapp');
+        const startParam = initDataUnsafe?.start_param || startParamFromURL;
 
         function connectGameWs(gameId) {
             gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
