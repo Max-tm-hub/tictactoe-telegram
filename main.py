@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Настройки из переменных окружения
+# Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -33,12 +33,10 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
     raise EnvironmentError("Missing required environment variables")
 
 supabase: Optional[Client] = None
-
-# Хранилище WebSocket-соединений
 active_connections: Dict[str, List[weakref.ref]] = {}
 
-# Вспомогательные функции
-def validate_init_data(init_data: str, bot_token: str) -> dict:
+# --- Валидация initData (исключаем 'hash') ---
+def validate_init_data(init_ str, bot_token: str) -> dict:
     try:
         pairs = [pair.split('=', 1) for pair in init_data.split('&')]
         data_dict = {}
@@ -50,10 +48,10 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
                 data_dict[k] = urllib.parse.unquote(v)
 
         if received_hash is None:
-            raise ValueError("Hash not found in initData")
+            raise ValueError("Hash not found")
 
         auth_date = int(data_dict.get("auth_date", 0))
-        if time.time() - auth_date > 86400:  # 24 часа
+        if time.time() - auth_date > 86400:
             raise HTTPException(status_code=403, detail="Init data expired")
 
         # Исключаем 'hash' из строки проверки
@@ -64,7 +62,6 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
         computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
         if computed_hash != received_hash:
-            logger.warning("Hash mismatch during validation")
             raise HTTPException(status_code=403, detail="Invalid hash")
 
         user_data = json.loads(data_dict["user"])
@@ -74,28 +71,29 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
         logger.error(f"Validation error: {e}")
         raise HTTPException(status_code=403, detail="Invalid init data")
 
+# --- Работа с БД ---
 def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
         return result.data
     except Exception as e:
-        logger.error(f"Error fetching game {game_id}: {e}")
+        logger.error(f"DB error (get game): {e}")
         return None
 
-def update_game(game_id: str, data: dict):
+def update_game(game_id: str,  dict):
     try:
         supabase.table("games").update(data).eq("id", game_id).execute()
     except Exception as e:
-        logger.error(f"Error updating game {game_id}: {e}")
+        logger.error(f"DB error (update game): {e}")
 
 def update_stats(user_id: str, username: str, field: str):
     try:
         if not user_id:
             return
         res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-        if res.data:
-            current_value = res.data[0][field]
-            supabase.table("stats").update({field: current_value + 1}).eq("user_id", user_id).execute()
+        if res.
+            current = res.data[0][field]
+            supabase.table("stats").update({field: current + 1}).eq("user_id", user_id).execute()
         else:
             supabase.table("stats").insert({
                 "user_id": user_id,
@@ -103,7 +101,7 @@ def update_stats(user_id: str, username: str, field: str):
                 field: 1
             }).execute()
     except Exception as e:
-        logger.error(f"Error updating stats for {user_id}: {e}")
+        logger.error(f"Stats update error: {e}")
 
 def check_win(board: list, symbol: str) -> bool:
     for i in range(3):
@@ -113,7 +111,7 @@ def check_win(board: list, symbol: str) -> bool:
         return True
     return False
 
-# FastAPI lifespan
+# --- Lifespan ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global supabase
@@ -121,17 +119,17 @@ async def lifespan(app: FastAPI):
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     yield
-    # Supabase sync client doesn't require explicit close
+    # Supabase sync client doesn't need closing
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS: ограничим origins
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://web.telegram.org",
         "https://t.me",
-        "http://localhost:3000",  # для разработки
+        "http://localhost:3000",
         WEBHOOK_URL,
     ],
     allow_methods=["*"],
@@ -140,26 +138,24 @@ app.add_middleware(
 
 app.mount("/mini", StaticFiles(directory="static"), name="mini")
 
-# WebSocket: обновления игры
+# --- WebSockets ---
 @app.websocket("/ws/{game_id}")
 async def game_websocket(websocket: WebSocket, game_id: str):
     await websocket.accept()
     if game_id not in active_connections:
         active_connections[game_id] = []
     active_connections[game_id].append(weakref.ref(websocket))
-
     try:
         game = get_game_by_id(game_id)
         if game:
             await websocket.send_text(json.dumps({"type": "game", **game[0]}))
         while True:
-            await websocket.receive_text()  # keep alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
         active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
         if not active_connections[game_id]:
             del active_connections[game_id]
 
-# WebSocket: чат
 @app.websocket("/ws/chat/{game_id}")
 async def chat_websocket(websocket: WebSocket, game_id: str):
     await websocket.accept()
@@ -180,38 +176,36 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
                 "text": msg["text"][:100],
                 "timestamp": time.time()
             }
-            # Рассылка в игровые вебсокеты
             if game_id in active_connections:
                 for ref in active_connections[game_id][:]:
                     ws = ref()
                     if ws:
                         try:
                             await ws.send_text(json.dumps(full_msg))
-                        except Exception as e:
-                            logger.error(f"Chat broadcast error: {e}")
+                        except:
+                            pass
     except WebSocketDisconnect:
         pass
 
-# Утилита: рассылка обновления игры
 async def broadcast_game_update(game_id: str):
     try:
         game_list = get_game_by_id(game_id)
         if not game_list:
             return
         game = game_list[0]
-        message = json.dumps({"type": "game", **game})
+        msg = json.dumps({"type": "game", **game})
         if game_id in active_connections:
             for ref in active_connections[game_id][:]:
                 ws = ref()
                 if ws:
                     try:
-                        await ws.send_text(message)
-                    except Exception as e:
-                        logger.error(f"Broadcast error to WS: {e}")
+                        await ws.send_text(msg)
+                    except:
+                        pass
     except Exception as e:
-        logger.error(f"Broadcast game update error: {e}")
+        logger.error(f"Broadcast error: {e}")
 
-# API: создать игру
+# --- API ---
 @app.post("/api/create-game")
 async def create_game(request: Request):
     try:
@@ -233,7 +227,6 @@ async def create_game(request: Request):
         logger.error(f"Create game error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# API: присоединиться
 @app.post("/api/join-game")
 async def join_game(request: Request):
     try:
@@ -246,24 +239,21 @@ async def join_game(request: Request):
             raise HTTPException(status_code=404, detail="Игра не найдена")
 
         game = game_list[0]
-        if game.get("opponent_id") or game["creator_id"] == user["id"]:
-            raise HTTPException(status_code=400, detail="Невозможно присоединиться к игре")
+        if game.get("opponent_id") or str(game["creator_id"]) == str(user["id"]):
+            raise HTTPException(status_code=400, detail="Невозможно присоединиться")
 
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"]
         })
-
         await broadcast_game_update(game_id)
         return {"status": "ok"}
-
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Join game error: {e}")
+        logger.error(f"Join error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# API: сделать ход
 @app.post("/api/make-move")
 async def make_move(request: Request):
     try:
@@ -273,7 +263,7 @@ async def make_move(request: Request):
         row, col = data["row"], data["col"]
 
         if not (0 <= row <= 2 and 0 <= col <= 2):
-            raise HTTPException(status_code=400, detail="Invalid row or column")
+            raise HTTPException(status_code=400, detail="Invalid row/col")
 
         game_list = get_game_by_id(game_id)
         if not game_list:
@@ -324,23 +314,21 @@ async def make_move(request: Request):
 
         await broadcast_game_update(game_id)
         return {"status": "ok"}
-
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Make move error: {e}")
+        logger.error(f"Move error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# API: статистика
 @app.get("/api/stats")
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        if not init_data:
-            raise HTTPException(status_code=400, detail="Missing X-Init-Data header")
+        if not init_
+            raise HTTPException(status_code=400, detail="Missing X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data:
+        if res.
             return res.data[0]
         return {
             "user_id": user["id"],
@@ -352,25 +340,58 @@ async def get_stats(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Get stats error: {e}")
+        logger.error(f"Stats error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# Telegram webhook
+# --- Telegram Webhook (с поддержкой /start <game_id>) ---
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
         bot = Bot(token=BOT_TOKEN)
         update_data = await request.json()
         update = Update(**update_data)
-        if update.message and update.message.text == "/start":
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text="Играть в Крестики-нолики",
-                    web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html")
-                )
-            ]])
-            await bot.send_message(update.message.from_user.id, "Нажмите, чтобы начать!", reply_markup=kb)
+
+        if update.message and update.message.text:
+            text = update.message.text.strip()
+            user_id = update.message.from_user.id
+
+            if text == "/start":
+                # Новый игрок — создаём новую игру
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="Играть в Крестики-нолики",
+                        web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html")
+                    )
+                ]])
+                await bot.send_message(user_id, "Нажмите, чтобы начать!", reply_markup=kb)
+
+            elif text.startswith("/start "):
+                # Присоединение к существующей игре
+                game_id = text.split(" ", 1)[1].strip()
+                game_list = get_game_by_id(game_id)
+                if not game_list:
+                    await bot.send_message(user_id, "❌ Игра не найдена.")
+                    return {"ok": True}
+
+                game = game_list[0]
+                if game.get("opponent_id"):
+                    await bot.send_message(user_id, "❌ Игра уже заполнена.")
+                elif str(game["creator_id"]) == str(user_id):
+                    await bot.send_message(user_id, "Вы — создатель игры. Открываю вашу игру...")
+                else:
+                    await bot.send_message(user_id, "🎮 Присоединяйтесь к игре!")
+
+                # Важно: НЕ добавляем ?game_id в URL!
+                # Telegram автоматически передаст game_id как start_param
+                kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="Открыть игру",
+                        web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html")
+                    )
+                ]])
+                await bot.send_message(user_id, "Нажмите кнопку ниже:", reply_markup=kb)
+
         return {"ok": True}
     except Exception as e:
-        logger.error(f"Telegram webhook error: {e}")
+        logger.error(f"Webhook error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
