@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Крестики-нолики</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js  "></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -112,7 +112,8 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        const BACKEND = "https://tictactoe-telegram.onrender.com"; // Замените на адрес вашего сервера
+        // Use the placeholder which will be replaced by the server
+        const BACKEND = "{{WEBHOOK_URL}}";
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
@@ -131,7 +132,9 @@
         const startParam = initDataUnsafe?.start_param || startParamFromURL;
 
         function connectGameWs(gameId) {
-            gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
+            // Correctly construct the WebSocket URL using the BACKEND variable
+            const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
+            gameWs = new WebSocket(`${wsUrl}/ws/${gameId}`);
             gameWs.onopen = () => {
                 console.log("WebSocket соединение установлено");
             };
@@ -150,7 +153,8 @@
         }
 
         function connectChatWs(gameId) {
-            chatWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/chat/${gameId}`);
+             const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
+            chatWs = new WebSocket(`${wsUrl}/ws/chat/${gameId}`);
         }
 
         async function loadStats() {
@@ -270,8 +274,10 @@
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!game.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
+                document.getElementById('startGameBtn').style.display = 'none'; // Скрыть кнопку если второго игрока нет
             } else if (!game.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
+                // Показать кнопку "Начать игру" только второму игроку, если игра не началась и второй игрок присоединился
                 if (!isCreator) {
                     document.getElementById('startGameBtn').style.display = 'block';
                 } else {
