@@ -100,7 +100,7 @@
     <h1>Крестики-нолики</h1>
     <div id="stats">🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих</div>
     <div id="status" class="status">Загрузка...</div>
-    <div id="board" class="board"></div>
+    <div id="board" class="board"></div> <!-- Поле будет отображаться только после начала игры -->
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
@@ -187,6 +187,7 @@
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
+                boardDiv.style.display = 'none'; // Скрываем доску для создателя до начала игры
                 renderEmptyBoard(); // Отрисовка пустой доски для создателя до подключения второго игрока
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
@@ -208,6 +209,7 @@
                 connectGameWs(gameId);
                 connectChatWs(gameId);
                 statusDiv.textContent = "Вы присоединились к игре!";
+                boardDiv.style.display = 'none'; // Скрываем доску до начала игры
                 // renderEmptyBoard(); // Убираем эту строку, отрисовка теперь в renderGame
             } catch (e) {
                 statusDiv.textContent = "Не удалось присоединиться.";
@@ -226,6 +228,9 @@
                 if (!res.ok) {
                     throw new Error("Не удалось начать игру");
                 }
+                // После успешного запроса сервер обновит состояние игры и отправит его через WebSocket.
+                // renderGame() будет вызван автоматически через onmessage.
+                // Можно добавить временное сообщение, например: statusDiv.textContent = "Начинаем игру...";
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось начать игру." });
                 console.error(`Ошибка начала игры: ${e.message}`);
@@ -277,40 +282,50 @@
             } else if (!game.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
                 document.getElementById('startGameBtn').style.display = 'none'; // Скрыть кнопку если второго игрока нет
+                boardDiv.style.display = 'none'; // Скрыть доску
             } else if (!game.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
+                boardDiv.style.display = 'none'; // Скрыть доску до начала
                 // Показать кнопку "Начать игру" только второму игроку, если игра не началась и второй игрок присоединился
                 if (!isCreator) {
                     document.getElementById('startGameBtn').style.display = 'block';
                 } else {
                     document.getElementById('startGameBtn').style.display = 'none';
                 }
-            } else if (game.current_turn == myId) {
-                statusDiv.textContent = "Ваш ход!";
-            } else {
-                statusDiv.textContent = "Ход соперника...";
-            }
-
-            // Очищаем и перерисовываем доску
-            boardDiv.innerHTML = '';
-            for (let i = 0; i < 3; i++) {
-                for (let j = 0; j < 3; j++) {
-                    const cell = document.createElement('div');
-                    cell.className = 'cell';
-                    const val = game.board[i][j];
-                    if (val) {
-                        cell.textContent = val;
-                        cell.classList.add(val.toLowerCase());
-                        if (game.winner && val === game.winner) {
-                            cell.classList.add('winner');
+            } else { // Игра началась (game.game_started === true)
+                statusDiv.textContent = "Игра началась!"; // Обновляем статус
+                document.getElementById('startGameBtn').style.display = 'none'; // Скрыть кнопку старта
+                boardDiv.style.display = 'grid'; // Показать доску
+                // Очищаем и перерисовываем доску
+                boardDiv.innerHTML = '';
+                for (let i = 0; i < 3; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        const val = game.board[i][j];
+                        if (val) {
+                            cell.textContent = val;
+                            cell.classList.add(val.toLowerCase());
+                            if (game.winner && val === game.winner) {
+                                cell.classList.add('winner');
+                            }
                         }
+                        if (game.game_started && !game.winner && game.current_turn == myId && !val) {
+                            cell.onclick = () => makeMove(i, j);
+                        }
+                        boardDiv.appendChild(cell);
                     }
-                    if (game.game_started && !game.winner && game.current_turn == myId && !val) {
-                        cell.onclick = () => makeMove(i, j);
+                }
+                // Обновляем статус хода, если игра не закончена
+                if (!game.winner) {
+                    if (game.current_turn == myId) {
+                        statusDiv.textContent = "Ваш ход!";
+                    } else {
+                        statusDiv.textContent = "Ход соперника...";
                     }
-                    boardDiv.appendChild(cell);
                 }
             }
+
             // Показываем чат, если второй игрок присоединился
             if (game.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
