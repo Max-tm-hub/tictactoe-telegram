@@ -16,6 +16,10 @@ from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboa
 import weakref
 import uuid
 import aiohttp
+from dotenv import load_dotenv
+
+# Загрузка переменных окружения
+load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -222,6 +226,7 @@ async def create_game(request: Request):
             "creator_name": user["first_name"],
             "current_turn": user["id"],
             "board": [[None]*3 for _ in range(3)],
+            "game_started": False,  # Игра не начинается автоматически
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
         invite_link = f"http://t.me/Alex_tictactoeBot?start={game_id}"
@@ -245,14 +250,41 @@ async def join_game(request: Request):
             raise HTTPException(status_code=400, detail="Невозможно присоединиться к игре")
         update_game(game_id, {
             "opponent_id": user["id"],
-            "opponent_name": user["first_name"]
+            "opponent_name": user["first_name"],
+            "game_started": False  # Игра не начинается автоматически
         })
-        await broadcast_game_update(game_id)  # <-- Исправление: оповещаем всех игроков
+        await broadcast_game_update(game_id)
         return {"status": "ok"}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Ошибка присоединения к игре: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+@app.post("/api/start-game")
+async def start_game(request: Request):
+    try:
+        data = await request.json()
+        user = validate_init_data(data["initData"], BOT_TOKEN)
+        game_id = data["game_id"]
+        game_list = get_game_by_id(game_id)
+        if not game_list:
+            raise HTTPException(status_code=404, detail="Игра не найдена")
+        game = game_list[0]
+        if not game.get("opponent_id") or game.get("game_started"):
+            raise HTTPException(status_code=400, detail="Невозможно начать игру")
+        if str(user["id"]) != str(game["opponent_id"]):
+            raise HTTPException(status_code=403, detail="Только второй игрок может начать игру")
+        update_game(game_id, {
+            "game_started": True,
+            "current_turn": game["creator_id"]  # Начинает первый игрок
+        })
+        await broadcast_game_update(game_id)
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка начала игры: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
 @app.post("/api/make-move")
@@ -268,6 +300,8 @@ async def make_move(request: Request):
         if not game_list:
             raise HTTPException(status_code=404, detail="Игра не найдена")
         game = game_list[0]
+        if not game.get("game_started"):
+            raise HTTPException(status_code=400, detail="Игра ещё не началась")
         if game.get("winner") or game["current_turn"] != user["id"]:
             raise HTTPException(status_code=400, detail="Сейчас не ваша очередь ходить")
         symbol = "X" if user["id"] == game["creator_id"] else "O"
