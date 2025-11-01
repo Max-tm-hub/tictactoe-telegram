@@ -124,7 +124,6 @@
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
         const initDataUnsafe = Telegram.initDataUnsafe;
-
         const urlParams = new URLSearchParams(window.location.search);
         const startParamFromURL = urlParams.get('startapp');
         const startParam = initDataUnsafe?.start_param || startParamFromURL;
@@ -245,6 +244,7 @@
             const opponentName = game.opponent_name || 'Ожидание...';
             const creatorName = game.creator_name;
 
+            // Обновляем статус игры
             if (game.winner === 'draw') {
                 statusDiv.textContent = "Ничья!";
             } else if (game.winner) {
