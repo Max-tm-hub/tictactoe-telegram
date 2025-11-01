@@ -6,7 +6,94 @@
     <title>Крестики-нолики</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* Ваш CSS-код сюда */
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-template-rows: repeat(3, 100px);
+            gap: 5px;
+            margin: 20px auto;
+            max-width: 310px;
+        }
+        .cell {
+            width: 100px;
+            height: 100px;
+            background-color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            cursor: pointer;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .cell.x {
+            color: #ff5722;
+        }
+        .cell.o {
+            color: #2196f3;
+        }
+        .cell.winner {
+            background-color: #e8f5e9;
+        }
+        #status {
+            font-size: 18px;
+            margin: 10px 0;
+            color: #333;
+        }
+        #stats {
+            font-size: 16px;
+            margin: 10px 0;
+            color: #555;
+        }
+        #inviteLink {
+            margin: 10px 0;
+            word-break: break-all;
+        }
+        #copyLinkBtn {
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        #chatBox {
+            margin-top: 20px;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        #chatMessages {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: white;
+            margin-bottom: 10px;
+            text-align: left;
+        }
+        #chatInput {
+            width: 70%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        #sendBtn {
+            width: 25%;
+            padding: 10px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -15,8 +102,8 @@
     <div id="status" class="status">Загрузка...</div>
     <div id="board" class="board"></div>
     <div id="inviteLink"></div>
-    <button id="copyLinkBtn">Скопировать ссылку</button>
-    <div id="chatBox">
+    <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
+    <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
         <button id="sendBtn">Отправить</button>
@@ -38,7 +125,6 @@
         const chatMessages = document.getElementById('chatMessages');
         const initDataUnsafe = Telegram.initDataUnsafe;
 
-        // Получаем startParam из URL или initData
         const urlParams = new URLSearchParams(window.location.search);
         const startParamFromURL = urlParams.get('startapp');
         const startParam = initDataUnsafe?.start_param || startParamFromURL;
@@ -109,7 +195,7 @@
                     connectGameWs(gameId);
                     connectChatWs(gameId);
                     statusDiv.textContent = "Вы присоединились к игре!";
-                    renderEmptyBoard(); // Чтобы прорисовать игровое поле после присоединения
+                    renderEmptyBoard();
                 } else {
                     throw new Error("Join failed");
                 }
