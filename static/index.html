@@ -6,11 +6,10 @@
     <title>Крестики-нолики</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* Стили остаются прежними */
+        /* Ваш CSS-код сюда */
     </style>
 </head>
 <body>
-    <!-- HTML-разметка остаётся неизменной -->
     <h1>Крестики-нолики</h1>
     <div id="stats">🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих</div>
     <div id="status" class="status">Загрузка...</div>
@@ -25,7 +24,7 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        const BACKEND = "https://your_backend_server"; // Здесь замените на адрес своего бекэнда
+        const BACKEND = "https://your_backend_server"; // Укажите правильный адрес вашего сервера
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
@@ -91,7 +90,8 @@
                 inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a href="${data.invite_link}" target="_blank">${data.invite_link}</a>`;
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
-                statusDiv.textContent = "Игра создана! Ожидание второго игрока...";                 renderEmptyBoard();
+                statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
+                renderEmptyBoard();
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось создать игру." });
