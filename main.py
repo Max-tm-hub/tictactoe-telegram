@@ -229,7 +229,7 @@ async def create_game(request: Request):
             "board": [[None]*3 for _ in range(3)],
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
-        invite_link = f"https://t.me/Alex_tictacoeBot?start={game_id}"
+        invite_link = f"http://t.me/Alex_tictactoeBot?start={game_id}"
         logger.info(f"Игра создана: {game_id}")
         return {"game_id": game_id, "invite_link": invite_link}
     except Exception as e:
