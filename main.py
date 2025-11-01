@@ -39,7 +39,7 @@ active_connections: Dict[str, List[weakref.ref]] = {}
 session = None
 
 # Валидация initData
-def validate_init_data(init_data: str, bot_token: str) -> dict:
+def validate_init_data(init_ str, bot_token: str) -> dict:
     try:
         pairs = [pair.split("=", 1) for pair in init_data.split("&")]
         data_dict = {}
@@ -103,7 +103,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict):
+def update_game(game_id: str,  dict):
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
