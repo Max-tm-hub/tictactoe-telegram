@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Крестики-нолики</title>
+    <!-- Убираем пробелы из src -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -110,6 +111,13 @@
         <button id="sendBtn">Отправить</button>
     </div>
     <script>
+        // Убедимся, что Telegram.WebApp инициализирован
+        if (!window.Telegram || !window.Telegram.WebApp) {
+            console.error("Telegram WebApp объект недоступен.");
+            document.getElementById('status').textContent = "Ошибка: Telegram WebApp недоступен.";
+            throw new Error("Telegram WebApp недоступен.");
+        }
+
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
         // Используем конкретный адрес сайта
@@ -126,6 +134,7 @@
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
+
         // Проверяем, что initDataUnsafe определён и содержит user
         if (!Telegram.initDataUnsafe || !Telegram.initDataUnsafe.user) {
             console.error("Telegram WebApp initDataUnsafe.user недоступен. Убедитесь, что страница открыта через Telegram WebApp.");
@@ -246,7 +255,7 @@
 
         async function makeMove(row, col) {
             console.log("Попытка сделать ход в ячейку:", row, col, "Game ID:", gameId);
-            try:
+            try {
                 // Проверим, что row и col - числа в нужном диапазоне
                 if (typeof row !== 'number' || typeof col !== 'number' || row < 0 || row > 2 || col < 0 || col > 2) {
                     throw new Error(`Некорректные координаты хода: row=${row}, col=${col}`);
