@@ -245,15 +245,23 @@
         }
 
         async function makeMove(row, col) {
+            console.log("Попытка сделать ход в ячейку:", row, col, "Game ID:", gameId);
             try {
+                // Проверим, что row и col - числа в нужном диапазоне
+                if (typeof row !== 'number' || typeof col !== 'number' || row < 0 || row > 2 || col < 0 || col > 2) {
+                    throw new Error(`Некорректные координаты хода: row=${row}, col=${col}`);
+                }
                 const res = await fetch(`${BACKEND}/api/make-move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ initData: Telegram.initData, game_id: gameId, row, col })
                 });
                 if (!res.ok) {
-                    throw new Error("Не удалось сделать ход");
+                    const errorText = await res.text(); // Получим текст ошибки для логирования
+                    console.error(`Сервер вернул ошибку: ${res.status} ${res.statusText}`, errorText);
+                    throw new Error(`Сервер вернул ошибку: ${res.status} ${res.statusText}`);
                 }
+                console.log("Ход успешно отправлен.");
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось сделать ход." });
                 console.error(`Ошибка хода: ${e.message}`);
@@ -313,20 +321,47 @@
                 statusDiv.textContent = "Игра началась!"; // Обновляем статус
                 document.getElementById('startGameBtn').style.display = 'none'; // Скрыть кнопку старта
                 boardDiv.style.display = 'grid'; // Показать доску
+                // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+                // Убедимся, что game.board - это массив массивов
+                let boardToRender = game.board;
+                if (typeof game.board === 'string') {
+                    try {
+                        boardToRender = JSON.parse(game.board);
+                        console.log("Доска была строкой, распарсена в:", boardToRender);
+                    } catch (e) {
+                        console.error("Ошибка парсинга доски из строки:", e, "Исходная строка:", game.board);
+                        statusDiv.textContent = "Ошибка: повреждённые данные доски.";
+                        return; // Прерываем отрисовку
+                    }
+                }
+                if (!Array.isArray(boardToRender) || boardToRender.length !== 3 || !boardToRender.every(row => Array.isArray(row) && row.length === 3)) {
+                     console.error("Доска имеет неверный формат:", boardToRender);
+                     statusDiv.textContent = "Ошибка: неверный формат доски.";
+                     return; // Прерываем отрисовку
+                }
+                // --- КОНЕЦ ИЗМЕНЕНИЙ ---
                 // Очищаем и перерисовываем доску
                 boardDiv.innerHTML = '';
                 for (let i = 0; i < 3; i++) {
                     for (let j = 0; j < 3; j++) {
                         const cell = document.createElement('div');
                         cell.className = 'cell';
-                        const val = game.board[i][j];
+                        const val = boardToRender[i][j]; // Используем boardToRender
                         if (val) {
-                            cell.textContent = val;
-                            cell.classList.add(val.toLowerCase());
-                            if (game.winner && val === game.winner) {
-                                cell.classList.add('winner');
+                            // Проверяем, что val - это 'X' или 'O'
+                            if (val === 'X' || val === 'O') {
+                                cell.textContent = val;
+                                cell.classList.add(val.toLowerCase());
+                                if (game.winner && val === game.winner) {
+                                    cell.classList.add('winner');
+                                }
+                            } else {
+                                console.warn(`Некорректное значение в ячейке [${i}][${j}]: ${val}`);
+                                // Оставляем ячейку пустой или ставим пробел, если значение не 'X' и не 'O'
+                                cell.textContent = '';
                             }
                         }
+                        // Проверяем, можно ли сделать ход
                         if (game.game_started && !game.winner && game.current_turn == myId && !val) {
                             cell.onclick = () => makeMove(i, j);
                         }
