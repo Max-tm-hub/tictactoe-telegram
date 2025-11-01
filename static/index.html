@@ -112,8 +112,8 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        // Use the placeholder which will be replaced by the server
-        const BACKEND = "https://tictactoe-telegram.onrender.com";
+        // Используем конкретный адрес сайта
+        const BACKEND = "https://tictactoe-telegram.onrender.com  "; // Замените на адрес вашего сервера
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
@@ -186,7 +186,7 @@
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
-                renderEmptyBoard();
+                renderEmptyBoard(); // Отрисовка пустой доски для создателя
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось создать игру." });
@@ -207,7 +207,8 @@
                 connectGameWs(gameId);
                 connectChatWs(gameId);
                 statusDiv.textContent = "Вы присоединились к игре!";
-                renderEmptyBoard();
+                // НЕ вызываем renderEmptyBoard() здесь!
+                // Первое состояние игры будет получено через WebSocket и обработано renderGame
             } catch (e) {
                 statusDiv.textContent = "Не удалось присоединиться.";
                 Telegram.showPopup({ title: "Ошибка", message: "Игра не найдена или уже заполнена." });
