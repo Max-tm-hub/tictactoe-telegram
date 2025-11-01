@@ -55,7 +55,7 @@
             margin: 10px 0;
             word-break: break-all;
         }
-        #copyLinkBtn {
+        #copyLinkBtn, #startGameBtn {
             background-color: #4caf50;
             color: white;
             border: none;
@@ -103,6 +103,7 @@
     <div id="board" class="board"></div>
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
+    <button id="startGameBtn" style="display: none;">Начать игру</button>
     <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
@@ -111,7 +112,7 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        const BACKEND = "https://tictactoe-telegram.onrender.com"; // Замените на адрес вашего сервера
+        const BACKEND = "https://ваш_бэкенд_url"; // Замените на адрес вашего сервера
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
@@ -120,6 +121,7 @@
         const statsDiv = document.getElementById('stats');
         const inviteLinkDiv = document.getElementById('inviteLink');
         const copyLinkBtn = document.getElementById('copyLinkBtn');
+        const startGameBtn = document.getElementById('startGameBtn');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
@@ -209,6 +211,22 @@
             }
         }
 
+        async function startGame() {
+            try {
+                const res = await fetch(`${BACKEND}/api/start-game`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData: Telegram.initData, game_id: gameId })
+                });
+                if (!res.ok) {
+                    throw new Error("Не удалось начать игру");
+                }
+            } catch (e) {
+                Telegram.showPopup({ title: "Ошибка", message: "Не удалось начать игру." });
+                console.error(`Ошибка начала игры: ${e.message}`);
+            }
+        }
+
         async function makeMove(row, col) {
             try {
                 const res = await fetch(`${BACKEND}/api/make-move`, {
@@ -252,12 +270,20 @@
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!game.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
+            } else if (!game.game_started) {
+                statusDiv.textContent = "Ожидание начала игры...";
+                if (!isCreator) {
+                    document.getElementById('startGameBtn').style.display = 'block';
+                } else {
+                    document.getElementById('startGameBtn').style.display = 'none';
+                }
             } else if (game.current_turn == myId) {
                 statusDiv.textContent = "Ваш ход!";
             } else {
                 statusDiv.textContent = "Ход соперника...";
             }
 
+            // Очищаем и перерисовываем доску
             boardDiv.innerHTML = '';
             for (let i = 0; i < 3; i++) {
                 for (let j = 0; j < 3; j++) {
@@ -271,12 +297,13 @@
                             cell.classList.add('winner');
                         }
                     }
-                    if (!game.winner && game.current_turn == myId && !val) {
+                    if (game.game_started && !game.winner && game.current_turn == myId && !val) {
                         cell.onclick = () => makeMove(i, j);
                     }
                     boardDiv.appendChild(cell);
                 }
             }
+            // Показываем чат, если второй игрок присоединился
             if (game.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
             }
@@ -292,6 +319,8 @@
                 Telegram.showPopup({ title: "❌ Ошибка", message: "Не удалось скопировать ссылку." });
             });
         };
+
+        startGameBtn.onclick = startGame;
 
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
