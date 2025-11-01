@@ -79,13 +79,46 @@ def is_game_id_unique(game_id: str) -> bool:
 def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
-        return result.data
+        if result.data:
+            # Убедимся, что board - это список списков, а не строка
+            game_data = result.data[0]
+            board = game_data.get("board")
+            if isinstance(board, str):
+                try:
+                    parsed_board = json.loads(board)
+                    if isinstance(parsed_board, list) and len(parsed_board) == 3 and all(isinstance(row, list) and len(row) == 3 for row in parsed_board):
+                         game_data["board"] = parsed_board
+                         logger.debug(f"Доска для игры {game_id} была строкой, преобразована в список списков.")
+                    else:
+                         logger.error(f"Доска для игры {game_id} - строка, но не корректный JSON массив 3x3: {board}")
+                except json.JSONDecodeError:
+                    logger.error(f"Доска для игры {game_id} - строка, но не корректный JSON: {board}")
+                    # Возвращаем None или пустую игру, если доска испорчена
+                    return None
+            return result.data
+        return None
     except Exception as e:
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
 def update_game(game_id: str, data: dict):
     try:
+        # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
+        # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
+        board = data.get("board")
+        if isinstance(board, str):
+             # Если вдруг board пришёл строкой в update, попробуем его распарсить перед отправкой
+             try:
+                 parsed_board = json.loads(board)
+                 if isinstance(parsed_board, list) and len(parsed_board) == 3 and all(isinstance(row, list) and len(row) == 3 for row in parsed_board):
+                     data["board"] = parsed_board
+                     logger.debug(f"Доска в update_game была строкой, преобразована в список списков перед отправкой.")
+                 else:
+                     logger.error(f"Доска в update_game была строкой, но не корректный JSON массив 3x3: {board}")
+                     return # Не обновляем, если доска испорчена
+             except json.JSONDecodeError:
+                 logger.error(f"Доска в update_game была строкой, но не корректный JSON: {board}")
+                 return # Не обновляем, если доска испорчена
         supabase.table("games").update(data).eq("id", game_id).execute()
     except Exception as e:
         logger.error(f"Ошибка обновления игры: {e}")
@@ -104,12 +137,17 @@ def update_stats(user_id: str, username: str, field: str):
         logger.error(f"Ошибка обновления статистики: {e}")
 
 def check_win(board: list, symbol: str) -> bool:
-    for i in range(3):
-        if all(board[i][j] == symbol for j in range(3)) or all(board[j][i] == symbol for j in range(3)):
+    # board уже должен быть списком списков к моменту вызова этой функции
+    try:
+        for i in range(3):
+            if all(board[i][j] == symbol for j in range(3)) or all(board[j][i] == symbol for j in range(3)):
+                return True
+        if all(board[i][i] == symbol for i in range(3)) or all(board[i][2 - i] == symbol for i in range(3)):
             return True
-    if all(board[i][i] == symbol for i in range(3)) or all(board[i][2 - i] == symbol for i in range(3)):
-        return True
-    return False
+        return False
+    except (TypeError, IndexError) as e:
+        logger.error(f"Ошибка в check_win: {e}, board: {board}")
+        return False # Не считаем победу, если доска испорчена
 
 # Lifespan
 @asynccontextmanager
@@ -128,7 +166,7 @@ app = FastAPI(lifespan=lifespan)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://web.telegram.org  ", "https://t.me  ", "http://localhost:3000", WEBHOOK_URL],
+    allow_origins=["https://web.telegram.org", "https://t.me", "http://localhost:3000", WEBHOOK_URL],
     allow_methods=["*"],
     allow_headers=["*"]
 )
@@ -220,12 +258,14 @@ async def create_game(request: Request):
         game_id = str(uuid.uuid4())[:8]
         while not is_game_id_unique(game_id):
             game_id = str(uuid.uuid4())[:8]
+        # board должен быть списком списков
+        initial_board = [[None]*3 for _ in range(3)]
         supabase.table("games").insert({
             "id": game_id,
             "creator_id": user["id"],
             "creator_name": user["first_name"],
             "current_turn": user["id"],
-            "board": [[None]*3 for _ in range(3)],
+            "board": initial_board, # Отправляем как список списков
             "game_started": False,  # Игра не начинается автоматически
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
@@ -305,7 +345,7 @@ async def make_move(request: Request):
         if game.get("winner") or game["current_turn"] != user["id"]:
             raise HTTPException(status_code=400, detail="Сейчас не ваша очередь ходить")
         symbol = "X" if user["id"] == game["creator_id"] else "O"
-        board = game["board"]
+        board = game["board"] # board должен быть списком списков благодаря get_game_by_id
         if board[row][col] is not None:
             raise HTTPException(status_code=400, detail="Эта ячейка уже занята")
         board[row][col] = symbol
@@ -318,7 +358,7 @@ async def make_move(request: Request):
             game["opponent_id"] if user["id"] == game["creator_id"] else game["creator_id"]
         )
         update_game(game_id, {
-            "board": board,
+            "board": board, # board как список списков
             "current_turn": next_turn,
             "winner": winner
         })
