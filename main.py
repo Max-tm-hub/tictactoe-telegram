@@ -269,6 +269,7 @@ async def create_game(request: Request):
             "current_turn": user["id"],
             "board": initial_board, # Отправляем как список списков
             "game_started": False,  # Игра не начинается автоматически
+            "winner": None, # Добавляем поле winner при создании
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
         invite_link = f"http://t.me/Alex_tictactoeBot?start={game_id}"
@@ -344,7 +345,10 @@ async def make_move(request: Request):
         game = game_list[0]
         if not game.get("game_started"):
             raise HTTPException(status_code=400, detail="Игра ещё не началась")
-        if game.get("winner") or game["current_turn"] != user["id"]:
+        # Проверка на победителя/ничью: разрешаем ход, только если игра не закончена
+        if game.get("winner") is not None:
+             raise HTTPException(status_code=400, detail="Игра уже завершена")
+        if game["current_turn"] != user["id"]:
             raise HTTPException(status_code=400, detail="Сейчас не ваша очередь ходить")
         symbol = "X" if user["id"] == game["creator_id"] else "O"
         board = game["board"] # board должен быть списком списков благодаря get_game_by_id
@@ -362,7 +366,7 @@ async def make_move(request: Request):
         update_game(game_id, {
             "board": board, # board как список списков
             "current_turn": next_turn,
-            "winner": winner
+            "winner": winner # Обновляем победителя
         })
         if winner:
             c_id = game["creator_id"]
@@ -386,6 +390,64 @@ async def make_move(request: Request):
         raise
     except Exception as e:
         logger.error(f"Ошибка хода: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+@app.post("/api/restart-game")
+async def restart_game(request: Request):
+    try:
+        data = await request.json()
+        user = validate_init_data(data["initData"], BOT_TOKEN)
+        old_game_id = data["game_id"]
+        old_game_list = get_game_by_id(old_game_id)
+        if not old_game_list:
+            raise HTTPException(status_code=404, detail="Старая игра не найдена")
+        old_game = old_game_list[0]
+
+        # Проверяем, что запрос от создателя старой игры
+        if str(user["id"]) != str(old_game["creator_id"]):
+            raise HTTPException(status_code=403, detail="Только создатель игры может начать новую")
+
+        # Проверяем, что игра завершена
+        if old_game.get("winner") is None:
+             raise HTTPException(status_code=400, detail="Невозможно перезапустить незавершённую игру")
+
+        # Создаём новую игру с теми же ID игроков
+        new_game_id = str(uuid.uuid4())[:8]
+        while not is_game_id_unique(new_game_id):
+            new_game_id = str(uuid.uuid4())[:8]
+        initial_board = [[None]*3 for _ in range(3)]
+        supabase.table("games").insert({
+            "id": new_game_id,
+            "creator_id": old_game["creator_id"],
+            "creator_name": old_game["creator_name"],
+            "opponent_id": old_game.get("opponent_id"), # Переносим ID второго игрока
+            "opponent_name": old_game.get("opponent_name"),
+            "current_turn": old_game["creator_id"], # Начинает создатель
+            "board": initial_board,
+            "game_started": True,  # Новая игра сразу начинается
+            "winner": None,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+        }).execute()
+
+        # Закрываем WebSocket старой игры
+        if old_game_id in active_connections:
+            for ref in active_connections[old_game_id][:]:
+                ws = ref()
+                if ws:
+                    await ws.close(code=1000, reason="Игра перезапущена") # Код 1000 - нормальное закрытие
+            del active_connections[old_game_id]
+
+        # Рассылаем сообщение о новой игре
+        new_game_data = get_game_by_id(new_game_id)[0]
+        await broadcast_game_update(new_game_id)
+
+        logger.info(f"Игра перезапущена: {old_game_id} -> {new_game_id}")
+        return {"new_game_id": new_game_id, "status": "ok"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка перезапуска игры: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
 @app.get("/api/stats")
