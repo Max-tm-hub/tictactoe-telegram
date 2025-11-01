@@ -91,6 +91,8 @@ def get_game_by_id(game_id: str):
                          logger.debug(f"Доска для игры {game_id} была строкой, преобразована в список списков.")
                     else:
                          logger.error(f"Доска для игры {game_id} - строка, но не корректный JSON массив 3x3: {board}")
+                         # Возвращаем None или пустую игру, если доска испорчена
+                         return None
                 except json.JSONDecodeError:
                     logger.error(f"Доска для игры {game_id} - строка, но не корректный JSON: {board}")
                     # Возвращаем None или пустую игру, если доска испорчена
