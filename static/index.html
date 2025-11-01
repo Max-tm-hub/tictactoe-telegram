@@ -56,7 +56,7 @@
             margin: 10px 0;
             word-break: break-all;
         }
-        #copyLinkBtn, #startGameBtn {
+        #copyLinkBtn, #startGameBtn, #restartGameBtn, #closeGameBtn {
             background-color: #4caf50;
             color: white;
             border: none;
@@ -64,6 +64,12 @@
             border-radius: 5px;
             cursor: pointer;
             margin: 10px 0;
+        }
+        #restartGameBtn, #closeGameBtn {
+            background-color: #2196f3; /* Синий для перезапуска */
+        }
+        #closeGameBtn {
+            background-color: #f44336; /* Красный для закрытия */
         }
         #chatBox {
             margin-top: 20px;
@@ -105,6 +111,8 @@
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
+    <button id="restartGameBtn" style="display: none;">Новая игра</button>
+    <button id="closeGameBtn" style="display: none;">Закрыть игру</button>
     <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
@@ -131,6 +139,8 @@
         const inviteLinkDiv = document.getElementById('inviteLink');
         const copyLinkBtn = document.getElementById('copyLinkBtn');
         const startGameBtn = document.getElementById('startGameBtn');
+        const restartGameBtn = document.getElementById('restartGameBtn');
+        const closeGameBtn = document.getElementById('closeGameBtn'); // Кнопка "Закрыть игру"
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
@@ -164,8 +174,17 @@
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
             };
-            gameWs.onclose = gameWs.onerror = () => {
-                statusDiv.textContent = "Соединение с игрой потеряно.";
+            gameWs.onclose = (event) => {
+                 if (event.code === 1000 && event.reason === "Игра перезапущена") {
+                     console.log("WebSocket закрыт сервером: игра перезапущена.");
+                     // Ничего не делаем, renderGame обработает новую игру
+                 } else {
+                      statusDiv.textContent = "Соединение с игрой потеряно.";
+                      console.log("WebSocket отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
+                 }
+            };
+            gameWs.onerror = (error) => {
+                 console.error("Ошибка WebSocket для игры", gameId, error);
             };
         }
 
@@ -250,6 +269,28 @@
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось начать игру." });
                 console.error(`Ошибка начала игры: ${e.message}`);
+            }
+        }
+
+        async function restartGame() {
+            try {
+                const res = await fetch(`${BACKEND}/api/restart-game`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData: Telegram.initData, game_id: gameId })
+                });
+                if (!res.ok) {
+                    throw new Error("Не удалось перезапустить игру");
+                }
+                const data = await res.json();
+                // gameId обновляется на новый ID
+                gameId = data.new_game_id;
+                // WebSocket будет закрыт сервером, и новое соединение установится через renderGame
+                console.log("Запрос на перезапуск игры отправлен. Ожидание новой игры с ID:", gameId);
+                // renderGame обработает новое состояние игры
+            } catch (e) {
+                Telegram.showPopup({ title: "Ошибка", message: "Не удалось перезапустить игру." });
+                console.error(`Ошибка перезапуска игры: ${e.message}`);
             }
         }
 
@@ -361,6 +402,7 @@
                             if (val === 'X' || val === 'O') {
                                 cell.textContent = val;
                                 cell.classList.add(val.toLowerCase());
+                                // Всегда проверяем на победителя для подсветки
                                 if (game.winner && val === game.winner) {
                                     cell.classList.add('winner');
                                 }
@@ -384,6 +426,20 @@
                     } else {
                         statusDiv.textContent = "Ход соперника...";
                     }
+                } else {
+                    // Показываем кнопки "Новая игра" и "Закрыть игру" после завершения
+                    if (isCreator) { // Только создатель может перезапустить
+                         restartGameBtn.style.display = 'inline-block';
+                         closeGameBtn.style.display = 'inline-block';
+                    } else {
+                         // Второй игрок видит результат, но не может начать новую
+                         // Можно скрыть чат или оставить, чтобы обсудить
+                         // restartGameBtn.style.display = 'none';
+                         // closeGameBtn.style.display = 'none';
+                         // Или оставить кнопки, но сделать их неактивными для второго игрока
+                         restartGameBtn.style.display = 'none';
+                         closeGameBtn.style.display = 'none';
+                    }
                 }
             }
 
@@ -405,6 +461,11 @@
         };
 
         startGameBtn.onclick = startGame;
+        restartGameBtn.onclick = restartGame;
+        closeGameBtn.onclick = () => {
+            // Просто закрываем WebApp
+            Telegram.WebApp.close();
+        };
 
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
@@ -416,6 +477,8 @@
                     Telegram.showPopup({ title: "Ошибка", message: "Не удалось отправить сообщение." });
                     console.error(`Ошибка отправки сообщения: ${e.message}`);
                 }
+            } else {
+                 Telegram.showPopup({ title: "Ошибка", message: "Соединение с чатом не установлено." });
             }
         };
 
