@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Крестики-нолики</title>
-    <script src="https://telegram.org/js/telegram-web-app.js  "></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -126,6 +126,13 @@
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
+        // Проверяем, что initDataUnsafe определён и содержит user
+        if (!Telegram.initDataUnsafe || !Telegram.initDataUnsafe.user) {
+            console.error("Telegram WebApp initDataUnsafe.user недоступен. Убедитесь, что страница открыта через Telegram WebApp.");
+            statusDiv.textContent = "Ошибка: Не удалось получить данные пользователя.";
+            // Блокируем дальнейшее выполнение или показываем сообщение
+            throw new Error("Telegram WebApp initDataUnsafe.user недоступен.");
+        }
         const initDataUnsafe = Telegram.initDataUnsafe;
         const urlParams = new URLSearchParams(window.location.search);
         const startParamFromURL = urlParams.get('startapp');
@@ -266,12 +273,20 @@
 
         function renderGame(game) {
             console.log("Отрисовка игры с данными:", game); // Логирование
-            const user = JSON.parse(decodeURIComponent(Telegram.initDataUnsafe.user));
+            // Проверяем initDataUnsafe снова при отрисовке
+            if (!Telegram.initDataUnsafe || !Telegram.initDataUnsafe.user) {
+                console.error("Telegram WebApp initDataUnsafe.user недоступен при отрисовке.");
+                statusDiv.textContent = "Ошибка: Не удалось получить данные пользователя.";
+                return;
+            }
+            const user = Telegram.initDataUnsafe.user; // Получаем объект пользователя напрямую
             const myId = String(user.id);
             const isCreator = myId === String(game.creator_id);
             const mySymbol = isCreator ? 'X' : 'O';
             const opponentName = game.opponent_name || 'Ожидание...';
             const creatorName = game.creator_name;
+
+            console.log("Мой ID:", myId, "ID Создателя:", game.creator_id, "Я создатель:", isCreator); // Логирование
 
             // Обновляем статус игры
             if (game.winner === 'draw') {
@@ -288,8 +303,10 @@
                 boardDiv.style.display = 'none'; // Скрыть доску до начала
                 // Показать кнопку "Начать игру" только второму игроку, если игра не началась и второй игрок присоединился
                 if (!isCreator) {
+                    console.log("Показываем кнопку 'Начать игру' второму игроку.");
                     document.getElementById('startGameBtn').style.display = 'block';
                 } else {
+                    console.log("Скрываем кнопку 'Начать игру' от создателя.");
                     document.getElementById('startGameBtn').style.display = 'none';
                 }
             } else { // Игра началась (game.game_started === true)
@@ -361,6 +378,7 @@
         chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendBtn.click(); };
 
         document.addEventListener('DOMContentLoaded', async () => {
+            console.log("DOMContentLoaded с initDataUnsafe:", Telegram.initDataUnsafe); // Логирование
             await loadStats();
             if (startParam && typeof startParam === 'string' && startParam.length === 8) {
                 gameId = startParam;
