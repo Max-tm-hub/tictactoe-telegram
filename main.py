@@ -45,22 +45,17 @@ def validate_init_data(init_data: str, bot_token: str) -> dict:
                 received_hash = urllib.parse.unquote(v)
             else:
                 data_dict[k] = urllib.parse.unquote(v)
-
         if received_hash is None:
             raise ValueError("Хэш не найден")
-
         auth_date = int(data_dict.get("auth_date", 0))
         if time.time() - auth_date > 86400:
             raise HTTPException(status_code=403, detail="Истекло время действия initData")
-
         data_check_pairs = [(k, v) for k, v in data_dict.items() if k != "hash"]
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data_check_pairs))
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
         if computed_hash != received_hash:
             raise HTTPException(status_code=403, detail="Некорректный хэш")
-
         user_data = json.loads(data_dict["user"])
         logger.info(f"Пользователь успешно валидирован: ID {user_data.get('id')}")
         return user_data
@@ -133,6 +128,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
 app.mount("/mini", StaticFiles(directory="static"), name="mini")
 
 # WebSockets
@@ -142,7 +138,6 @@ async def game_websocket(websocket: WebSocket, game_id: str):
     if game_id not in active_connections:
         active_connections[game_id] = []
     active_connections[game_id].append(weakref.ref(websocket))
-
     try:
         game = get_game_by_id(game_id)
         if game:
@@ -252,7 +247,7 @@ async def join_game(request: Request):
             "opponent_id": user["id"],
             "opponent_name": user["first_name"]
         })
-        await broadcast_game_update(game_id)
+        await broadcast_game_update(game_id)  # <-- Исправление: оповещаем всех игроков
         return {"status": "ok"}
     except HTTPException:
         raise
@@ -367,7 +362,6 @@ async def telegram_webhook(request: Request):
                     await bot.send_message(user_id, "Вы — создатель игры. Открываете свою игру...")
                 else:
                     await bot.send_message(user_id, "🎮 Присоединяйтесь к игре!")
-
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}"))]
                 ])
