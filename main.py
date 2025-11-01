@@ -15,6 +15,7 @@ from aiogram import Bot
 from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 import weakref
 import uuid
+import aiohttp
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -31,6 +32,7 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
 
 supabase: Optional[Client] = None
 active_connections: Dict[str, List[weakref.ref]] = {}
+session = None  # Глобальная сессия AIOHTTP
 
 # Валидация initData
 def validate_init_data(init_data: str, bot_token: str) -> dict:
@@ -100,11 +102,14 @@ def check_win(board: list, symbol: str) -> bool:
 # Lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global supabase
+    global session, supabase
+    session = aiohttp.ClientSession()
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     yield
+    await session.close()
+    await bot.session.close()
 
 app = FastAPI(lifespan=lifespan)
 
