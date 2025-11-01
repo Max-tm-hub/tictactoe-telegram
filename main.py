@@ -1,349 +1,95 @@
-import os
-import hashlib
-import hmac
-import json
-import time
-import logging
-import urllib.parse
-from typing import Dict, List, Optional
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client, Client
-from contextlib import asynccontextmanager
-from aiogram import Bot
-from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
-import weakref
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from typing import List, Dict, Any
 import uuid
-import aiohttp
+import json
+import logging
+from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+app = FastAPI()
 logger = logging.getLogger(__name__)
 
-# Переменные окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+# Хранилище игр
+games: Dict[str, Dict] = {}
 
-if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
-    raise EnvironmentError("Отсутствуют обязательные переменные окружения")
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {}
 
-supabase: Optional[Client] = None
-active_connections: Dict[str, List[weakref.ref]] = {}
-session = None
+    async def connect(self, websocket: WebSocket, game_id: str):
+        await websocket.accept()
+        if game_id not in self.active_connections:
+            self.active_connections[game_id] = []
+        self.active_connections[game_id].append(websocket)
 
-# Валидация initData
-def validate_init_data(init_data: str, bot_token: str) -> dict:
-    try:
-        pairs = [pair.split("=", 1) for pair in init_data.split("&")]
-        data_dict = {}
-        received_hash = None
-        for k, v in pairs:
-            if k == "hash":
-                received_hash = urllib.parse.unquote(v)
-            else:
-                data_dict[k] = urllib.parse.unquote(v)
+    def disconnect(self, websocket: WebSocket, game_id: str):
+        if game_id in self.active_connections:
+            self.active_connections[game_id].remove(websocket)
 
-        if received_hash is None:
-            raise ValueError("Хэш не найден")
+    async def broadcast(self, data: Dict, game_id: str):
+        if game_id in self.active_connections:
+            for connection in self.active_connections[game_id]:
+                await connection.send_text(json.dumps(data))
 
-        auth_date = int(data_dict.get("auth_date", 0))
-        if time.time() - auth_date > 86400:
-            raise HTTPException(status_code=403, detail="Истекло время действия initData")
+manager = ConnectionManager()
 
-        data_check_pairs = [(k, v) for k, v in data_dict.items() if k != "hash"]
-        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data_check_pairs))
-        secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-        computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
-        if computed_hash != received_hash:
-            raise HTTPException(status_code=403, detail="Некорректный хэш")
-
-        user_data = json.loads(data_dict["user"])
-        logger.info(f"Пользователь успешно валидирован: ID {user_data.get('id')}")
-        return user_data
-    except Exception as e:
-        logger.error(f"Ошибка валидации: {e}")
-        raise HTTPException(status_code=403, detail="Некорректные данные initData")
-
-# Работа с базой данных
-def is_game_id_unique(game_id: str) -> bool:
-    try:
-        result = supabase.table("games").select("id").eq("id", game_id).execute()
-        return not result.data
-    except Exception as e:
-        logger.error(f"Ошибка проверки уникальности game_id: {e}")
-        return False
-
-def get_game_by_id(game_id: str):
-    try:
-        result = supabase.table("games").select("*").eq("id", game_id).execute()
-        return result.data
-    except Exception as e:
-        logger.error(f"Ошибка получения игры: {e}")
-        return None
-
-def update_game(game_id: str, data: dict):
-    try:
-        supabase.table("games").update(data).eq("id", game_id).execute()
-    except Exception as e:
-        logger.error(f"Ошибка обновления игры: {e}")
-
-def update_stats(user_id: str, username: str, field: str):
-    try:
-        if not user_id:
-            return
-        res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-        if res.data:
-            current = res.data[0][field]
-            supabase.table("stats").update({field: current + 1}).eq("user_id", user_id).execute()
-        else:
-            supabase.table("stats").insert({"user_id": user_id, "username": username, field: 1}).execute()
-    except Exception as e:
-        logger.error(f"Ошибка обновления статистики: {e}")
-
-def check_win(board: list, symbol: str) -> bool:
-    for i in range(3):
-        if all(board[i][j] == symbol for j in range(3)) or all(board[j][i] == symbol for j in range(3)):
-            return True
-    if all(board[i][i] == symbol for i in range(3)) or all(board[i][2 - i] == symbol for i in range(3)):
-        return True
-    return False
-
-# Lifespan
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global session, supabase
-    session = aiohttp.ClientSession()
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    bot = Bot(token=BOT_TOKEN)
-    await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    yield
-    await session.close()
-    await bot.session.close()
-
-app = FastAPI(lifespan=lifespan)
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://web.telegram.org", "https://t.me", "http://localhost:3000", WEBHOOK_URL],
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-app.mount("/mini", StaticFiles(directory="static"), name="mini")
-
-# WebSockets
 @app.websocket("/ws/{game_id}")
-async def game_websocket(websocket: WebSocket, game_id: str):
-    await websocket.accept()
-    if game_id not in active_connections:
-        active_connections[game_id] = []
-    active_connections[game_id].append(weakref.ref(websocket))
-
-    try:
-        game = get_game_by_id(game_id)
-        if game:
-            await websocket.send_json({"type": "game", **game[0]})
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket отключен для игры {game_id}")
-        active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
-        if not active_connections[game_id]:
-            del active_connections[game_id]
-    except Exception as e:
-        logger.error(f"Ошибка WebSocket для игры {game_id}: {e}")
-        active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
-        if not active_connections[game_id]:
-            del active_connections[game_id]
-
-@app.websocket("/ws/chat/{game_id}")
-async def chat_websocket(websocket: WebSocket, game_id: str):
-    await websocket.accept()
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    await manager.connect(websocket, game_id)
     try:
         while True:
             data = await websocket.receive_text()
-            msg = json.loads(data)
-            user = validate_init_data(msg["initData"], BOT_TOKEN)
-            supabase.table("messages").insert({
-                "game_id": game_id,
-                "user_id": user["id"],
-                "username": user["first_name"],
-                "text": msg["text"][:100]
-            }).execute()
-            full_msg = {
-                "type": "chat",
-                "username": user["first_name"],
-                "text": msg["text"][:100],
-                "timestamp": time.time()
-            }
-            if game_id in active_connections:
-                for ref in active_connections[game_id][:]:
-                    ws = ref()
-                    if ws:
-                        try:
-                            await ws.send_json(full_msg)
-                        except Exception as e:
-                            logger.error(f"Ошибка отправки сообщения в WebSocket: {e}")
+            message = json.loads(data)
+            if message["type"] == "move":
+                game = games.get(game_id, {})
+                game["board"] = message["board"]
+                await manager.broadcast(message, game_id)
     except WebSocketDisconnect:
-        logger.info(f"WebSocket чата отключен для игры {game_id}")
-    except Exception as e:
-        logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
+        manager.disconnect(websocket, game_id)
 
-async def broadcast_game_update(game_id: str):
-    try:
-        game_list = get_game_by_id(game_id)
-        if not game_list:
-            return
-        game = game_list[0]
-        msg = {"type": "game", **game}
-        if game_id in active_connections:
-            for ref in active_connections[game_id][:]:
-                ws = ref()
-                if ws:
-                    try:
-                        await ws.send_json(msg)
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки сообщения в WebSocket: {e}")
-    except Exception as e:
-        logger.error(f"Ошибка трансляции обновления игры: {e}")
+@app.post("/create_game")
+async def create_game(creator_id: int):
+    game_id = str(uuid.uuid4())
+    games[game_id] = {
+        "creator_id": creator_id,
+        "opponent_id": None,
+        "players": [],
+        "board": ["", "", "", "", "", "", "", "", ""],
+        "current_player": "X",
+        "winner": None,
+        "status": "waiting"
+    }
+    return {"game_id": game_id}
 
-# API endpoints
-@app.post("/api/create-game")
-async def create_game(request: Request):
-    try:
-        data = await request.json()
-        logger.info(f"Получены данные initData: {data.get('initData')}")
-        user = validate_init_data(data["initData"], BOT_TOKEN)
-        game_id = str(uuid.uuid4())[:8]
-        while not is_game_id_unique(game_id):
-            game_id = str(uuid.uuid4())[:8]
-        supabase.table("games").insert({
-            "id": game_id,
-            "creator_id": user["id"],
-            "creator_name": user["first_name"],
-            "current_turn": user["id"],
-            "board": [[None]*3 for _ in range(3)],
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
-        }).execute()
-        invite_link = f"http://t.me/Alex_tictactoeBot?start={game_id}"
-        logger.info(f"Игра создана: {game_id}")
-        return {"game_id": game_id, "invite_link": invite_link}
-    except Exception as e:
-        logger.error(f"Ошибка создания игры: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+@app.post("/join_game/{game_id}")
+async def join_game(game_id: str, player_id: int):
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
 
-@app.post("/api/join-game")
-async def join_game(request: Request):
-    try:
-        data = await request.json()
-        user = validate_init_data(data["initData"], BOT_TOKEN)
-        game_id = data["game_id"]
-        game_list = get_game_by_id(game_id)
-        if not game_list:
-            raise HTTPException(status_code=404, detail="Игра не найдена")
-        game = game_list[0]
-        if game.get("opponent_id") or str(game["creator_id"]) == str(user["id"]):
-            raise HTTPException(status_code=400, detail="Невозможно присоединиться к игре")
-        update_game(game_id, {
-            "opponent_id": user["id"],
-            "opponent_name": user["first_name"]
-        })
-        await broadcast_game_update(game_id)
-        return {"status": "ok"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка присоединения к игре: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    game = games[game_id]
+    if len(game["players"]) >= 2:
+        raise HTTPException(status_code=400, detail="Игра уже заполнена")
 
-@app.post("/api/make-move")
-async def make_move(request: Request):
-    try:
-        data = await request.json()
-        user = validate_init_data(data["initData"], BOT_TOKEN)
-        game_id = data["game_id"]
-        row, col = data["row"], data["col"]
-        if not (0 <= row <= 2 and 0 <= col <= 2):
-            raise HTTPException(status_code=400, detail="Некорректные координаты")
-        game_list = get_game_by_id(game_id)
-        if not game_list:
-            raise HTTPException(status_code=404, detail="Игра не найдена")
-        game = game_list[0]
-        if game.get("winner") or game["current_turn"] != user["id"]:
-            raise HTTPException(status_code=400, detail="Сейчас не ваша очередь ходить")
-        symbol = "X" if user["id"] == game["creator_id"] else "O"
-        board = game["board"]
-        if board[row][col] is not None:
-            raise HTTPException(status_code=400, detail="Эта ячейка уже занята")
-        board[row][col] = symbol
-        winner = None
-        if check_win(board, symbol):
-            winner = symbol
-        elif all(cell is not None for r in board for cell in r):
-            winner = "draw"
-        next_turn = None if winner else (
-            game["opponent_id"] if user["id"] == game["creator_id"] else game["creator_id"]
-        )
-        update_game(game_id, {
-            "board": board,
-            "current_turn": next_turn,
-            "winner": winner
-        })
-        if winner:
-            c_id = game["creator_id"]
-            o_id = game.get("opponent_id")
-            c_name = game["creator_name"]
-            o_name = game.get("opponent_name", "Unknown")
-            if winner == "X":
-                update_stats(c_id, c_name, "wins")
-                if o_id:
-                    update_stats(o_id, o_name, "losses")
-            elif winner == "O" and o_id:
-                update_stats(o_id, o_name, "wins")
-                update_stats(c_id, c_name, "losses")
-            elif winner == "draw":
-                update_stats(c_id, c_name, "draws")
-                if o_id:
-                    update_stats(o_id, o_name, "draws")
-        await broadcast_game_update(game_id)
-        return {"status": "ok"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка хода: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    game["players"].append(player_id)
+    if len(game["players"]) == 2:
+        game["status"] = "started"
+        await manager.broadcast({"type": "game_start", "game": game}, game_id)
 
-@app.get("/api/stats")
-async def get_stats(request: Request):
-    try:
-        init_data = request.headers.get("X-Init-Data")
-        if not init_data:
-            raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
-        user = validate_init_data(init_data, BOT_TOKEN)
-        res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data:
-            return res.data[0]
-        return {
-            "user_id": user["id"],
-            "username": user["first_name"],
-            "wins": 0,
-            "losses": 0,
-            "draws": 0
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка получения статистики: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    return {"status": "joined", "game": game}
+
+@app.get("/game/{game_id}")
+async def get_game(game_id: str):
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Игра не найдена")
+    return games[game_id]
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
-        bot = Bot(token=BOT_TOKEN)
+        bot = Bot(token="YOUR_BOT_TOKEN")
         update_data = await request.json()
         update = Update(**update_data)
         if update.message and update.message.text:
@@ -351,7 +97,7 @@ async def telegram_webhook(request: Request):
             user_id = update.message.from_user.id
             if text == "/start":
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Создать новую игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html"))]
+                    [InlineKeyboardButton(text="Создать новую игру", web_app=WebAppInfo(url="YOUR_WEBHOOK_URL/mini/index.html"))]
                 ])
                 await bot.send_message(user_id, "Нажмите, чтобы создать новую игру!", reply_markup=kb)
             elif text.startswith("/start "):
@@ -369,10 +115,13 @@ async def telegram_webhook(request: Request):
                     await bot.send_message(user_id, "🎮 Присоединяйтесь к игре!")
 
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}"))]
+                    [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"YOUR_WEBHOOK_URL/mini/index.html?startapp={game_id}"))]
                 ])
                 await bot.send_message(user_id, "Нажмите кнопку ниже, чтобы присоединиться:", reply_markup=kb)
         return {"ok": True}
     except Exception as e:
         logger.error(f"Ошибка вебхука: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+def get_game_by_id(game_id: str) -> List[Dict]:
+    return [game for gid, game in games.items() if gid == game_id]
