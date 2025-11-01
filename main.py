@@ -128,7 +128,7 @@ app = FastAPI(lifespan=lifespan)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://web.telegram.org", "https://t.me", "http://localhost:3000", WEBHOOK_URL],
+    allow_origins=["https://web.telegram.org  ", "https://t.me  ", "http://localhost:3000", WEBHOOK_URL],
     allow_methods=["*"],
     allow_headers=["*"]
 )
@@ -273,7 +273,7 @@ async def start_game(request: Request):
         game = game_list[0]
         if not game.get("opponent_id") or game.get("game_started"):
             raise HTTPException(status_code=400, detail="Невозможно начать игру")
-        if str(user["id"]) != str(game["opponent_id"]):
+        if str(user["id"]) != str(game["opponent_id"]): # Только второй игрок может начать
             raise HTTPException(status_code=403, detail="Только второй игрок может начать игру")
         update_game(game_id, {
             "game_started": True,
@@ -404,3 +404,12 @@ async def telegram_webhook(request: Request):
     except Exception as e:
         logger.error(f"Ошибка вебхука: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+# Endpoint to serve the index.html file, replacing the placeholder
+@app.get("/mini/index.html")
+async def serve_index():
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        content = f.read()
+    # Replace the placeholder with the actual URL
+    content = content.replace("{{WEBHOOK_URL}}", WEBHOOK_URL)
+    return content
