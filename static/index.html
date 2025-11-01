@@ -199,6 +199,7 @@
                   console.log("WebSocket соединение установлено для чата", gameId);
                   // Сбрасываем стили кнопки отправки, если были ошибки
                   sendBtn.style.backgroundColor = '#4caf50';
+                  sendBtn.disabled = false; // Возвращаем кнопку в активное состояние
              };
              chatWs.onmessage = (event) => {
                  const msg = JSON.parse(event.data);
@@ -374,10 +375,13 @@
 
             console.log("Мой ID:", myId, "ID Создателя:", game.creator_id, "Я создатель:", isCreator); // Логирование
 
+            // Проверяем, завершена ли игра (winner определён и не null/undefined)
+            const isGameFinished = game.winner !== null && game.winner !== undefined;
+
             // Обновляем статус игры
             if (game.winner === 'draw') {
                 statusDiv.textContent = "Ничья!";
-            } else if (game.winner) {
+            } else if (game.winner) { // Сюда попадаем, если winner === 'X' или 'O'
                 const winnerName = game.winner === 'X' ? creatorName : opponentName;
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!game.opponent_id) {
@@ -431,7 +435,8 @@
                                 cell.textContent = val;
                                 cell.classList.add(val.toLowerCase());
                                 // Всегда проверяем на победителя для подсветки
-                                if (game.winner && val === game.winner) {
+                                // Проверяем isGameFinished, чтобы подсветка работала и при завершении
+                                if (isGameFinished && game.winner && val === game.winner) {
                                     cell.classList.add('winner');
                                 }
                             } else {
@@ -441,26 +446,29 @@
                             }
                         }
                         // Проверяем, можно ли сделать ход
-                        if (game.game_started && !game.winner && game.current_turn == myId && !val) {
+                        if (game.game_started && !isGameFinished && game.current_turn == myId && !val) {
                             cell.onclick = () => makeMove(i, j);
                         }
                         boardDiv.appendChild(cell);
                     }
                 }
                 // Обновляем статус хода, если игра не закончена
-                if (!game.winner) {
+                if (!isGameFinished) { // Используем isGameFinished
                     if (game.current_turn == myId) {
                         statusDiv.textContent = "Ваш ход!";
                     } else {
                         statusDiv.textContent = "Ход соперника...";
                     }
-                } else {
+                } else { // Игра завершена
+                    console.log("Игра завершена, winner:", game.winner, "isCreator:", isCreator);
                     // Показываем кнопки "Новая игра" и "Закрыть игру" после завершения
                     if (isCreator) { // Только создатель может перезапустить
+                         console.log("Отображаем кнопки 'Новая игра' и 'Закрыть игру' создателю.");
                          restartGameBtn.style.display = 'inline-block';
                          closeGameBtn.style.display = 'inline-block';
                     } else {
                          // Второй игрок видит результат, но не может начать новую
+                         console.log("Скрываем кнопки 'Новая игра' и 'Закрыть игру' от второго игрока.");
                          restartGameBtn.style.display = 'none';
                          closeGameBtn.style.display = 'none';
                     }
