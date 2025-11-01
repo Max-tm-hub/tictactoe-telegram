@@ -140,8 +140,9 @@
             };
             gameWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
+                console.log("Получено сообщение от WebSocket:", msg); // Логирование
                 if (msg.type === "game") {
-                    renderGame(msg);
+                    renderGame(msg); // Теперь вызываем renderGame для отрисовки
                 } else if (msg.type === "chat") {
                     chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
                     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -186,7 +187,7 @@
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
-                renderEmptyBoard(); // Отрисовка пустой доски для создателя
+                renderEmptyBoard(); // Отрисовка пустой доски для создателя до подключения второго игрока
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось создать игру." });
@@ -207,8 +208,7 @@
                 connectGameWs(gameId);
                 connectChatWs(gameId);
                 statusDiv.textContent = "Вы присоединились к игре!";
-                // НЕ вызываем renderEmptyBoard() здесь!
-                // Первое состояние игры будет получено через WebSocket и обработано renderGame
+                // renderEmptyBoard(); // Убираем эту строку, отрисовка теперь в renderGame
             } catch (e) {
                 statusDiv.textContent = "Не удалось присоединиться.";
                 Telegram.showPopup({ title: "Ошибка", message: "Игра не найдена или уже заполнена." });
@@ -260,6 +260,7 @@
         }
 
         function renderGame(game) {
+            console.log("Отрисовка игры с данными:", game); // Логирование
             const user = JSON.parse(decodeURIComponent(Telegram.initDataUnsafe.user));
             const myId = String(user.id);
             const isCreator = myId === String(game.creator_id);
