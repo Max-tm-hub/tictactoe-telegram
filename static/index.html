@@ -111,7 +111,7 @@
     <script>
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
-        const BACKEND = "https://your_backend_server"; // Укажите правильный адрес вашего сервера
+        const BACKEND = "https://your_backend_server"; // Замените на адрес вашего сервера
         let gameId = null;
         let gameWs = null;
         let chatWs = null;
@@ -132,7 +132,7 @@
         function connectGameWs(gameId) {
             gameWs = new WebSocket(`wss://${BACKEND.replace('https://', '')}/ws/${gameId}`);
             gameWs.onopen = () => {
-                console.log("WebSocket connection established");
+                console.log("WebSocket соединение установлено");
             };
             gameWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
@@ -161,6 +161,7 @@
                 statsDiv.innerHTML = `🏆 ${stats.wins || 0} побед | 💀 ${stats.losses || 0} поражений | 🤝 ${stats.draws || 0} ничьих`;
             } catch (e) {
                 statsDiv.innerHTML = `🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих`;
+                console.error(`Ошибка загрузки статистики: ${e.message}`);
             }
         }
 
@@ -171,6 +172,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ initData: Telegram.initData })
                 });
+                if (!res.ok) {
+                    throw new Error("Не удалось создать игру");
+                }
                 const data = await res.json();
                 gameId = data.game_id;
                 inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a href="${data.invite_link}" target="_blank">${data.invite_link}</a>`;
@@ -181,6 +185,7 @@
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось создать игру." });
+                console.error(`Ошибка создания игры: ${e.message}`);
             }
         }
 
@@ -191,29 +196,33 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ initData: Telegram.initData, game_id: gameId })
                 });
-                if (res.ok) {
-                    connectGameWs(gameId);
-                    connectChatWs(gameId);
-                    statusDiv.textContent = "Вы присоединились к игре!";
-                    renderEmptyBoard();
-                } else {
-                    throw new Error("Join failed");
+                if (!res.ok) {
+                    throw new Error("Не удалось присоединиться к игре");
                 }
+                connectGameWs(gameId);
+                connectChatWs(gameId);
+                statusDiv.textContent = "Вы присоединились к игре!";
+                renderEmptyBoard();
             } catch (e) {
                 statusDiv.textContent = "Не удалось присоединиться.";
                 Telegram.showPopup({ title: "Ошибка", message: "Игра не найдена или уже заполнена." });
+                console.error(`Ошибка присоединения к игре: ${e.message}`);
             }
         }
 
         async function makeMove(row, col) {
             try {
-                await fetch(`${BACKEND}/api/make-move`, {
+                const res = await fetch(`${BACKEND}/api/make-move`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ initData: Telegram.initData, game_id: gameId, row, col })
                 });
+                if (!res.ok) {
+                    throw new Error("Не удалось сделать ход");
+                }
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось сделать ход." });
+                console.error(`Ошибка хода: ${e.message}`);
             }
         }
 
@@ -287,8 +296,13 @@
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
             if (text && chatWs?.readyState === WebSocket.OPEN) {
-                chatWs.send(JSON.stringify({ initData: Telegram.initData, text }));
-                chatInput.value = '';
+                try {
+                    chatWs.send(JSON.stringify({ initData: Telegram.initData, text }));
+                    chatInput.value = '';
+                } catch (e) {
+                    Telegram.showPopup({ title: "Ошибка", message: "Не удалось отправить сообщение." });
+                    console.error(`Ошибка отправки сообщения: ${e.message}`);
+                }
             }
         };
 
