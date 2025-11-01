@@ -162,11 +162,11 @@
             const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
             gameWs = new WebSocket(`${wsUrl}/ws/${gameId}`);
             gameWs.onopen = () => {
-                console.log("WebSocket соединение установлено");
+                console.log("WebSocket соединение установлено для игры", gameId);
             };
             gameWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
-                console.log("Получено сообщение от WebSocket:", msg); // Логирование
+                console.log("Получено сообщение от WebSocket игры:", msg); // Логирование
                 if (msg.type === "game") {
                     renderGame(msg); // Теперь вызываем renderGame для отрисовки
                 } else if (msg.type === "chat") {
@@ -176,21 +176,49 @@
             };
             gameWs.onclose = (event) => {
                  if (event.code === 1000 && event.reason === "Игра перезапущена") {
-                     console.log("WebSocket закрыт сервером: игра перезапущена.");
+                     console.log("WebSocket игры закрыт сервером: игра перезапущена.");
                      // Ничего не делаем, renderGame обработает новую игру
                  } else {
                       statusDiv.textContent = "Соединение с игрой потеряно.";
-                      console.log("WebSocket отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
+                      console.log("WebSocket игры отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
                  }
             };
             gameWs.onerror = (error) => {
-                 console.error("Ошибка WebSocket для игры", gameId, error);
+                 console.error("Ошибка WebSocket игры для", gameId, error);
             };
         }
 
         function connectChatWs(gameId) {
              const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
-            chatWs = new WebSocket(`${wsUrl}/ws/chat/${gameId}`);
+             // Закрываем предыдущее соединение, если оно было
+             if (chatWs) {
+                 chatWs.close();
+             }
+             chatWs = new WebSocket(`${wsUrl}/ws/chat/${gameId}`);
+             chatWs.onopen = () => {
+                  console.log("WebSocket соединение установлено для чата", gameId);
+                  // Сбрасываем стили кнопки отправки, если были ошибки
+                  sendBtn.style.backgroundColor = '#4caf50';
+             };
+             chatWs.onmessage = (event) => {
+                 const msg = JSON.parse(event.data);
+                 console.log("Получено сообщение от WebSocket чата:", msg); // Логирование
+                 if (msg.type === "chat") {
+                      chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
+                      chatMessages.scrollTop = chatMessages.scrollHeight;
+                 }
+             };
+             chatWs.onclose = (event) => {
+                  console.log("WebSocket чата отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
+                  // Попытка переподключения через 5 секунд
+                  // setTimeout(() => connectChatWs(gameId), 5000);
+             };
+             chatWs.onerror = (error) => {
+                  console.error("Ошибка WebSocket чата для", gameId, error);
+                  // Помечаем кнопку как неактивную при ошибке
+                  sendBtn.style.backgroundColor = '#f44336';
+                  sendBtn.disabled = true;
+             };
         }
 
         async function loadStats() {
@@ -242,7 +270,7 @@
                     throw new Error("Не удалось присоединиться к игре");
                 }
                 connectGameWs(gameId);
-                connectChatWs(gameId);
+                connectChatWs(gameId); // Подключаем чат при присоединении
                 statusDiv.textContent = "Вы присоединились к игре!";
                 boardDiv.style.display = 'none'; // Скрываем доску до начала игры
                 // renderEmptyBoard(); // Убираем эту строку, отрисовка теперь в renderGame
@@ -433,10 +461,6 @@
                          closeGameBtn.style.display = 'inline-block';
                     } else {
                          // Второй игрок видит результат, но не может начать новую
-                         // Можно скрыть чат или оставить, чтобы обсудить
-                         // restartGameBtn.style.display = 'none';
-                         // closeGameBtn.style.display = 'none';
-                         // Или оставить кнопки, но сделать их неактивными для второго игрока
                          restartGameBtn.style.display = 'none';
                          closeGameBtn.style.display = 'none';
                     }
@@ -446,6 +470,13 @@
             // Показываем чат, если второй игрок присоединился
             if (game.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
+                // Если чатовый WebSocket не подключен, пытаемся подключить (например, после присоединения)
+                if (!chatWs || chatWs.readyState === WebSocket.CLOSED) {
+                     connectChatWs(gameId);
+                }
+            } else {
+                // Если второго игрока нет, скрываем чат
+                document.getElementById('chatBox').style.display = 'none';
             }
         }
 
@@ -469,16 +500,23 @@
 
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
-            if (text && chatWs?.readyState === WebSocket.OPEN) {
+            // Проверяем, что чатовый WebSocket подключен и открыт
+            if (text && chatWs && chatWs.readyState === WebSocket.OPEN) {
                 try {
                     chatWs.send(JSON.stringify({ initData: Telegram.initData, text }));
                     chatInput.value = '';
                 } catch (e) {
                     Telegram.showPopup({ title: "Ошибка", message: "Не удалось отправить сообщение." });
-                    console.error(`Ошибка отправки сообщения: ${e.message}`);
+                    console.error(`Ошибка отправки сообщения в WebSocket чата: ${e.message}`);
                 }
             } else {
+                 // Если соединение не установлено или закрыто, показываем сообщение
                  Telegram.showPopup({ title: "Ошибка", message: "Соединение с чатом не установлено." });
+                 console.error("Попытка отправки сообщения в чат, но WebSocket не открыт. ReadyState:", chatWs ? chatWs.readyState : 'undefined');
+                 // Пытаемся переподключиться
+                 if (gameId) {
+                      connectChatWs(gameId);
+                 }
             }
         };
 
