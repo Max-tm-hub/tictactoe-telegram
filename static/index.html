@@ -367,13 +367,9 @@
             console.log("Сырой game.winner:", game.winner, "Тип:", typeof game.winner); // Логирование
 
             // Проверяем, завершена ли игра (winner определён и не null/undefined)
-            // Используем 'in' для проверки, определено ли поле вообще
-            const hasWinnerField = 'winner' in game;
-            const winnerIsNull = game.winner === null;
-            const winnerIsUndefined = game.winner === undefined;
-            const isGameFinished = hasWinnerField && !winnerIsNull && !winnerIsUndefined;
+            const isGameFinished = game.winner !== null && game.winner !== undefined;
 
-            console.log("hasWinnerField:", hasWinnerField, "winnerIsNull:", winnerIsNull, "winnerIsUndefined:", winnerIsUndefined, "isGameFinished:", isGameFinished); // Логирование
+            console.log("isGameFinished:", isGameFinished); // Логирование
 
             // Обновляем статус игры
             if (game.winner === 'draw') {
@@ -490,6 +486,8 @@
                         }
                     }).catch((error) => {
                          console.error("Ошибка при показе всплывающего окна:", error); // Логирование ошибки showPopup
+                         // Альтернативное уведомление, если showPopup не сработал
+                         Telegram.showAlert("Игра окончена: " + resultMessage);
                     });
                 }
             }
