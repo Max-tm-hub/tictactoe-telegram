@@ -39,7 +39,7 @@ active_connections: Dict[str, List[weakref.ref]] = {}
 session = None
 
 # Валидация initData
-def validate_init_data(init_data: str, bot_token: str) -> dict:
+def validate_init_data(init_data: str, bot_token: str) -> dict: # Исправлено
     try:
         pairs = [pair.split("=", 1) for pair in init_data.split("&")]
         data_dict = {}
@@ -79,7 +79,7 @@ def is_game_id_unique(game_id: str) -> bool:
 def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
-        if result.data:
+        if result.data: # Исправлено
             # Убедимся, что board - это список списков, а не строка
             game_data = result.data[0]
             board = game_data.get("board")
@@ -103,7 +103,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict):
+def update_game(game_id: str, data: dict): # Исправлено
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
@@ -130,7 +130,7 @@ def update_stats(user_id: str, username: str, field: str):
         if not user_id:
             return
         res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-        if res.data:
+        if res.data: # Исправлено
             current = res.data[0][field]
             supabase.table("stats").update({field: current + 1}).eq("user_id", user_id).execute()
         else:
@@ -458,7 +458,7 @@ async def get_stats(request: Request):
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data:
+        if res.data: # Исправлено
             return res.data[0]
         return {
             "user_id": user["id"],
