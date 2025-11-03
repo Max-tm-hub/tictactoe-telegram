@@ -56,7 +56,7 @@
             margin: 10px 0;
             word-break: break-all;
         }
-        #copyLinkBtn, #startGameBtn, #restartGameBtn, #closeGameBtn {
+        #copyLinkBtn, #startGameBtn {
             background-color: #4caf50;
             color: white;
             border: none;
@@ -64,12 +64,6 @@
             border-radius: 5px;
             cursor: pointer;
             margin: 10px 0;
-        }
-        #restartGameBtn, #closeGameBtn {
-            background-color: #2196f3; /* Синий для перезапуска */
-        }
-        #closeGameBtn {
-            background-color: #f44336; /* Красный для закрытия */
         }
         #chatBox {
             margin-top: 20px;
@@ -111,8 +105,6 @@
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
-    <button id="restartGameBtn" style="display: none;">Новая игра</button>
-    <button id="closeGameBtn" style="display: none;">Закрыть игру</button>
     <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
@@ -139,8 +131,6 @@
         const inviteLinkDiv = document.getElementById('inviteLink');
         const copyLinkBtn = document.getElementById('copyLinkBtn');
         const startGameBtn = document.getElementById('startGameBtn');
-        const restartGameBtn = document.getElementById('restartGameBtn');
-        const closeGameBtn = document.getElementById('closeGameBtn'); // Кнопка "Закрыть игру"
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
@@ -461,17 +451,36 @@
                     }
                 } else { // Игра завершена
                     console.log("Игра завершена, winner:", game.winner, "isCreator:", isCreator);
-                    // Показываем кнопки "Новая игра" и "Закрыть игру" после завершения
-                    if (isCreator) { // Только создатель может перезапустить
-                         console.log("Отображаем кнопки 'Новая игра' и 'Закрыть игру' создателю.");
-                         restartGameBtn.style.display = 'inline-block';
-                         closeGameBtn.style.display = 'inline-block';
-                    } else {
-                         // Второй игрок видит результат, но не может начать новую
-                         console.log("Скрываем кнопки 'Новая игра' и 'Закрыть игру' от второго игрока.");
-                         restartGameBtn.style.display = 'none';
-                         closeGameBtn.style.display = 'none';
-                    }
+                    // Отображаем результат в всплывающем окне
+                    const winnerName = game.winner === 'X' ? creatorName : opponentName;
+                    const resultMessage = game.winner === 'draw' ? "Ничья!" : `Победил(а) ${winnerName}!`;
+                    // Подготавливаем кнопки для всплывающего окна
+                    const buttons = [
+                        {
+                            id: "restart",
+                            type: "default",
+                            text: "Новая игра"
+                        },
+                        {
+                            id: "close",
+                            type: "destructive", // Красная кнопка
+                            text: "Закрыть игру"
+                        }
+                    ];
+                    // Показываем всплывающее окно с результатом и кнопками
+                    Telegram.showPopup({
+                        title: "Игра окончена",
+                        message: resultMessage,
+                        buttons: buttons
+                    }).then((buttonId) => {
+                        if (buttonId === "restart") {
+                            // Если нажата кнопка "Новая игра"
+                            restartGame();
+                        } else if (buttonId === "close") {
+                            // Если нажата кнопка "Закрыть игру"
+                            Telegram.WebApp.close();
+                        }
+                    });
                 }
             }
 
@@ -500,11 +509,6 @@
         };
 
         startGameBtn.onclick = startGame;
-        restartGameBtn.onclick = restartGame;
-        closeGameBtn.onclick = () => {
-            // Просто закрываем WebApp
-            Telegram.WebApp.close();
-        };
 
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
