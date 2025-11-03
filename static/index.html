@@ -364,9 +364,16 @@
             const creatorName = game.creator_name;
 
             console.log("Мой ID:", myId, "ID Создателя:", game.creator_id, "Я создатель:", isCreator); // Логирование
+            console.log("Сырой game.winner:", game.winner, "Тип:", typeof game.winner); // Логирование
 
             // Проверяем, завершена ли игра (winner определён и не null/undefined)
-            const isGameFinished = game.winner !== null && game.winner !== undefined;
+            // Используем 'in' для проверки, определено ли поле вообще
+            const hasWinnerField = 'winner' in game;
+            const winnerIsNull = game.winner === null;
+            const winnerIsUndefined = game.winner === undefined;
+            const isGameFinished = hasWinnerField && !winnerIsNull && !winnerIsUndefined;
+
+            console.log("hasWinnerField:", hasWinnerField, "winnerIsNull:", winnerIsNull, "winnerIsUndefined:", winnerIsUndefined, "isGameFinished:", isGameFinished); // Логирование
 
             // Обновляем статус игры
             if (game.winner === 'draw') {
@@ -473,6 +480,7 @@
                         message: resultMessage,
                         buttons: buttons
                     }).then((buttonId) => {
+                        console.log("Выбрана кнопка:", buttonId); // Логирование выбора кнопки
                         if (buttonId === "restart") {
                             // Если нажата кнопка "Новая игра"
                             restartGame();
@@ -480,6 +488,8 @@
                             // Если нажата кнопка "Закрыть игру"
                             Telegram.WebApp.close();
                         }
+                    }).catch((error) => {
+                         console.error("Ошибка при показе всплывающего окна:", error); // Логирование ошибки showPopup
                     });
                 }
             }
