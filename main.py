@@ -5,7 +5,6 @@ import json
 import time
 import logging
 import urllib.parse
-import asyncio
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -37,10 +36,10 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
 
 supabase: Optional[Client] = None
 active_connections: Dict[str, List[weakref.ref]] = {}
-session: Optional[aiohttp.ClientSession] = None # Глобальная сессия для lifespan
+session = None
 
 # Валидация initData
-def validate_init_data(init_data: str, bot_token: str) -> dict: # Исправлено: init_data: str
+def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
         pairs = [pair.split("=", 1) for pair in init_data.split("&")]
         data_dict = {}
@@ -104,7 +103,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict): # Исправлено: data: dict
+def update_game(game_id: str, data: dict):
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
@@ -156,36 +155,13 @@ def check_win(board: list, symbol: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global session, supabase
-    # Создаём сессию для lifespan (если нужно для других целей, например, healthchecks)
     session = aiohttp.ClientSession()
-    logger.info("Сессия aiohttp.ClientSession создана в lifespan.")
-    # Инициализируем клиента Supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    logger.info("Клиент Supabase инициализирован.")
-
-    # --- Установка webhook асинхронно после запуска приложения ---
-    async def set_webhook_async():
-        try:
-            bot = Bot(token=BOT_TOKEN)
-            await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-            logger.info(f"Webhook установлен на {WEBHOOK_URL}/webhook")
-            await bot.session.close() # Закрываем сессию бота после установки
-        except Exception as e:
-            logger.error(f"Ошибка установки webhook: {e}")
-            # Важно: не вызываем raise, иначе lifespan не завершится корректно
-            # и сервер не запустится. Лучше обработать ошибку или завершить процесс.
-            # Но для отладки просто логируем.
-    # Создаём задачу, которая выполнится асинхронно после yield
-    asyncio.create_task(set_webhook_async())
-
-    try:
-        yield # Передаём управление приложению
-    finally:
-        # Закрываем сессию lifespan
-        if session:
-            await session.close()
-            logger.info("Сессия aiohttp.ClientSession закрыта в lifespan.")
-        logger.info("Application shutdown complete.")
+    bot = Bot(token=BOT_TOKEN)
+    await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    yield
+    await session.close()
+    await bot.session.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -318,7 +294,7 @@ async def join_game(request: Request):
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"],
-            "game_started": False  # Игра не начинается автоматически
+            "game_started": False  # Игра не начинается automatically
         })
         await broadcast_game_update(game_id)
         return {"status": "ok"}
@@ -453,16 +429,23 @@ async def restart_game(request: Request):
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
 
-        # Закрываем WebSocket старой игры
+        # Уведомляем игроков старой игры о переключении на новую
         if old_game_id in active_connections:
             for ref in active_connections[old_game_id][:]:
                 ws = ref()
                 if ws:
-                    await ws.close(code=1000, reason="Игра перезапущена") # Код 1000 - нормальное закрытие
+                    try:
+                        await ws.send_json({"type": "restart", "new_game_id": new_game_id})
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления перезапуска: {e}")
+            # Закрываем старые соединения
+            for ref in active_connections[old_game_id][:]:
+                ws = ref()
+                if ws:
+                    await ws.close(code=1000, reason="Игра перезапущена")
             del active_connections[old_game_id]
 
-        # Рассылаем сообщение о новой игре
-        new_game_data = get_game_by_id(new_game_id)[0]
+        # Рассылаем сообщение о новой игре (если у кого-то уже есть подписка на новую игру)
         await broadcast_game_update(new_game_id)
 
         logger.info(f"Игра перезапущена: {old_game_id} -> {new_game_id}")
@@ -482,7 +465,7 @@ async def get_stats(request: Request):
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data: # Исправлено: res.data, а не res.
+        if res.data:
             return res.data[0]
         return {
             "user_id": user["id"],
@@ -516,7 +499,6 @@ async def telegram_webhook(request: Request):
                 game_list = get_game_by_id(game_id)
                 if not game_list:
                     await bot.send_message(user_id, "❌ Игра не найдена.")
-                    await bot.session.close()
                     return {"ok": True}
                 game = game_list[0]
                 if game.get("opponent_id"):
@@ -529,7 +511,6 @@ async def telegram_webhook(request: Request):
                     [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}"))]
                 ])
                 await bot.send_message(user_id, "Нажмите кнопку ниже, чтобы присоединиться:", reply_markup=kb)
-        await bot.session.close() # Закрываем сессию бота после обработки
         return {"ok": True}
     except Exception as e:
         logger.error(f"Ошибка вебхука: {e}")
