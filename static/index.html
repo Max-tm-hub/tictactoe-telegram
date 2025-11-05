@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Крестики-нолики</title>
-
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* Ваши стили остаются без изменений */
         body {
             font-family: Arial, sans-serif;
             text-align: center;
@@ -212,20 +210,6 @@
                 } else if (msg.type === "chat") {
                     chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
                     chatMessages.scrollTop = chatMessages.scrollHeight;
-                } else if (msg.type === "restart") {
-                    const newGameId = msg.new_game_id;
-                    if (gameWs) {
-                        try { gameWs.close(); } catch (e) { console.error(e); }
-                    }
-                    if (chatWs) {
-                        try { chatWs.close(); } catch (e) { console.error(e); }
-                    }
-                    gameId = newGameId;
-                    connectGameWs(newGameId);
-                    connectChatWs(newGameId);
-                    statusDiv.textContent = "Переключились на новую партию. Ожидание данных...";
-                    boardDiv.style.display = 'none';
-                    renderEmptyBoard();
                 }
             };
             gameWs.onclose = (event) => {
@@ -294,7 +278,7 @@
                 }
                 const data = await res.json();
                 gameId = data.game_id;
-                inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a href="${data.invite_link}" target="_blank">${data.invite_link}</a>`;
+                inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a id="inviteLinkAnchor" href="${data.invite_link}" target="_blank">${data.invite_link}</a>`;
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
@@ -496,8 +480,7 @@
                         statusDiv.textContent = "Ход соперника...";
                     }
                 } else {
-                    const isEndCreator = isCreator;
-                    showEndModal(isEndCreator, game);
+                    showEndModal(isCreator, game);
                 }
             }
 
@@ -549,7 +532,7 @@
         }
 
         copyLinkBtn.onclick = () => {
-            const linkEl = inviteLinkDiv.querySelector('a');
+            const linkEl = document.getElementById('inviteLinkAnchor');
             if (!linkEl) return;
             const url = linkEl.href;
             navigator.clipboard.writeText(url).then(() => {
