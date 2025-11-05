@@ -37,12 +37,11 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
 
 supabase: Optional[Client] = None
 active_connections: Dict[str, List[weakref.ref]] = {}
-session: Optional[aiohttp.ClientSession] = None # Глобальная сессия для lifespan
+session: Optional[aiohttp.ClientSession] = None  # Глобальная сессия для lifespan
 
 # Валидация initData - ИСПРАВЛЕНО
-def validate_init_data(init_data_str: str, bot_token: str) -> dict: # Исправлено: изменили имя параметра на init_data_str
+def validate_init_data(init_data_str: str, bot_token: str) -> dict:
     try:
-        # Используем init_data_str вместо init_data
         pairs = [pair.split("=", 1) for pair in init_data_str.split("&")]
         data_dict = {}
         received_hash = None
@@ -105,10 +104,9 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict): # Исправлено: data: dict
+def update_game(game_id: str, data: dict):
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
-        # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
         board = data.get("board")
         if isinstance(board, str):
              # Если вдруг board пришёл строкой в update, попробуем его распарсить перед отправкой
@@ -119,10 +117,10 @@ def update_game(game_id: str, data: dict): # Исправлено: data: dict
                      logger.debug(f"Доска в update_game была строкой, преобразована в список списков перед отправкой.")
                  else:
                      logger.error(f"Доска в update_game была строкой, но не корректный JSON массив 3x3: {board}")
-                     return # Не обновляем, если доска испорчена
+                     return  # Не обновляем, если доска испорчена
              except json.JSONDecodeError:
                  logger.error(f"Доска в update_game была строкой, но не корректный JSON: {board}")
-                 return # Не обновляем, если доска испорчена
+                 return  # Не обновляем, если доска испорчена
         supabase.table("games").update(data).eq("id", game_id).execute()
     except Exception as e:
         logger.error(f"Ошибка обновления игры: {e}")
@@ -153,39 +151,17 @@ def check_win(board: list, symbol: str) -> bool:
         logger.error(f"Ошибка в check_win: {e}, board: {board}")
         return False # Не считаем победу, если доска испорчена
 
-# Lifespan - ПРЕДПОЛАГАЕМ РАБОЧИМ (без вызова set_webhook в lifespan)
+# Lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global session, supabase
-    # Создаём сессию для lifespan
     session = aiohttp.ClientSession()
-    logger.info("Сессия aiohttp.ClientSession создана в lifespan.")
-    # Инициализируем клиента Supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    logger.info("Клиент Supabase инициализирован.")
-
-    # --- Установка webhook асинхронно после запуска приложения ---
-    # Выносим set_webhook в отдельную задачу, чтобы не блокировать startup
-    async def setup_webhook():
-        try:
-            bot = Bot(token=BOT_TOKEN)
-            await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-            logger.info(f"Webhook установлен на {WEBHOOK_URL}/webhook")
-            await bot.session.close() # Закрываем сессию бота после установки
-        except Exception as e:
-            logger.error(f"Ошибка установки webhook: {e}")
-            # Не вызываем raise, чтобы не останавливать запуск
-    # Создаём задачу, которая выполнится асинхронно
-    asyncio.create_task(setup_webhook())
-
-    try:
-        yield # Передаём управление приложению
-    finally:
-        # Закрываем сессию lifespan
-        if session:
-            await session.close()
-            logger.info("Сессия aiohttp.ClientSession закрыта в lifespan.")
-        logger.info("Application shutdown complete.")
+    bot = Bot(token=BOT_TOKEN)
+    await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    yield
+    await session.close()
+    await bot.session.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -230,7 +206,6 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
-            # Используем исправленное имя параметра
             user = validate_init_data(msg["initData"], BOT_TOKEN)
             supabase.table("messages").insert({
                 "game_id": game_id,
@@ -281,21 +256,19 @@ async def create_game(request: Request):
     try:
         data = await request.json()
         logger.info(f"Получены данные initData: {data.get('initData')}")
-        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = str(uuid.uuid4())[:8]
         while not is_game_id_unique(game_id):
             game_id = str(uuid.uuid4())[:8]
-        # board должен быть списком списков
         initial_board = [[None]*3 for _ in range(3)]
         supabase.table("games").insert({
             "id": game_id,
             "creator_id": user["id"],
             "creator_name": user["first_name"],
             "current_turn": user["id"],
-            "board": initial_board, # Отправляем как список списков
-            "game_started": False,  # Игра не начинается автоматически
-            "winner": None, # Добавляем поле winner при создании
+            "board": initial_board,
+            "game_started": False,
+            "winner": None,
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
         invite_link = f"http://t.me/Alex_tictactoeBot?start={game_id}"
@@ -309,7 +282,6 @@ async def create_game(request: Request):
 async def join_game(request: Request):
     try:
         data = await request.json()
-        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         game_list = get_game_by_id(game_id)
@@ -321,7 +293,7 @@ async def join_game(request: Request):
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"],
-            "game_started": False  # Игра не начинается автоматически
+            "game_started": False
         })
         await broadcast_game_update(game_id)
         return {"status": "ok"}
@@ -335,7 +307,6 @@ async def join_game(request: Request):
 async def start_game(request: Request):
     try:
         data = await request.json()
-        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         game_list = get_game_by_id(game_id)
@@ -344,11 +315,11 @@ async def start_game(request: Request):
         game = game_list[0]
         if not game.get("opponent_id") or game.get("game_started"):
             raise HTTPException(status_code=400, detail="Невозможно начать игру")
-        if str(user["id"]) != str(game["opponent_id"]): # Только второй игрок может начать
+        if str(user["id"]) != str(game["opponent_id"]):
             raise HTTPException(status_code=403, detail="Только второй игрок может начать игру")
         update_game(game_id, {
             "game_started": True,
-            "current_turn": game["creator_id"]  # Начинает первый игрок
+            "current_turn": game["creator_id"]
         })
         await broadcast_game_update(game_id)
         return {"status": "ok"}
@@ -362,7 +333,6 @@ async def start_game(request: Request):
 async def make_move(request: Request):
     try:
         data = await request.json()
-        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         row, col = data["row"], data["col"]
@@ -374,13 +344,12 @@ async def make_move(request: Request):
         game = game_list[0]
         if not game.get("game_started"):
             raise HTTPException(status_code=400, detail="Игра ещё не началась")
-        # Проверка на победителя/ничью: разрешаем ход, только если игра не закончена
         if game.get("winner") is not None:
              raise HTTPException(status_code=400, detail="Игра уже завершена")
         if game["current_turn"] != user["id"]:
             raise HTTPException(status_code=400, detail="Сейчас не ваша очередь ходить")
         symbol = "X" if user["id"] == game["creator_id"] else "O"
-        board = game["board"] # board должен быть списком списков благодаря get_game_by_id
+        board = game["board"]
         if board[row][col] is not None:
             raise HTTPException(status_code=400, detail="Эта ячейка уже занята")
         board[row][col] = symbol
@@ -393,9 +362,9 @@ async def make_move(request: Request):
             game["opponent_id"] if user["id"] == game["creator_id"] else game["creator_id"]
         )
         update_game(game_id, {
-            "board": board, # board как список списков
+            "board": board,
             "current_turn": next_turn,
-            "winner": winner # Обновляем победителя
+            "winner": winner
         })
         if winner:
             c_id = game["creator_id"]
@@ -425,7 +394,6 @@ async def make_move(request: Request):
 async def restart_game(request: Request):
     try:
         data = await request.json()
-        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         old_game_id = data["game_id"]
         old_game_list = get_game_by_id(old_game_id)
@@ -450,25 +418,32 @@ async def restart_game(request: Request):
             "id": new_game_id,
             "creator_id": old_game["creator_id"],
             "creator_name": old_game["creator_name"],
-            "opponent_id": old_game.get("opponent_id"), # Переносим ID второго игрока
+            "opponent_id": old_game.get("opponent_id"),
             "opponent_name": old_game.get("opponent_name"),
-            "current_turn": old_game["creator_id"], # Начинает создатель
+            "current_turn": old_game["creator_id"],
             "board": initial_board,
-            "game_started": True,  # Новая игра сразу начинается
+            "game_started": True,
             "winner": None,
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
 
-        # Закрываем WebSocket старой игры
+        # Уведомляем клиентов старой игры о переходе на новую
         if old_game_id in active_connections:
             for ref in active_connections[old_game_id][:]:
                 ws = ref()
                 if ws:
-                    await ws.close(code=1000, reason="Игра перезапущена") # Код 1000 - нормальное закрытие
+                    try:
+                        await ws.send_json({"type": "restart", "new_game_id": new_game_id})
+                    except Exception as e:
+                        logger.error(f"Ошибка отправки уведомления перезапуска: {e}")
+            # Закрываем старые соединения
+            for ref in active_connections[old_game_id][:]:
+                ws = ref()
+                if ws:
+                    await ws.close(code=1000, reason="Игра перезапущена")
             del active_connections[old_game_id]
 
         # Рассылаем сообщение о новой игре
-        new_game_data = get_game_by_id(new_game_id)[0]
         await broadcast_game_update(new_game_id)
 
         logger.info(f"Игра перезапущена: {old_game_id} -> {new_game_id}")
@@ -480,13 +455,35 @@ async def restart_game(request: Request):
         logger.error(f"Ошибка перезапуска игры: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
+@app.post("/api/end-game")
+async def end_game(request: Request):
+    try:
+        data = await request.json()
+        user = validate_init_data(data["initData"], BOT_TOKEN)
+        game_id = data["game_id"]
+        game_list = get_game_by_id(game_id)
+        if not game_list:
+            raise HTTPException(status_code=404, detail="Игра не найдена")
+        game = game_list[0]
+        # Только создатель может завершать игру
+        if str(user["id"]) != str(game["creator_id"]):
+            raise HTTPException(status_code=403, detail="Только создатель игры может завершить её")
+        # Пометить как завершённую/закрытую
+        update_game(game_id, {"game_started": False, "winner": game.get("winner"), "game_closed": True})
+        await broadcast_game_update(game_id)
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка завершения игры: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
 @app.get("/api/stats")
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
         if not init_data:
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
-        # Используем исправленное имя параметра
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
         if res.data:
@@ -523,7 +520,6 @@ async def telegram_webhook(request: Request):
                 game_list = get_game_by_id(game_id)
                 if not game_list:
                     await bot.send_message(user_id, "❌ Игра не найдена.")
-                    await bot.session.close()
                     return {"ok": True}
                 game = game_list[0]
                 if game.get("opponent_id"):
@@ -536,7 +532,6 @@ async def telegram_webhook(request: Request):
                     [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}"))]
                 ])
                 await bot.send_message(user_id, "Нажмите кнопку ниже, чтобы присоединиться:", reply_markup=kb)
-        await bot.session.close() # Закрываем сессию бота после обработки
         return {"ok": True}
     except Exception as e:
         logger.error(f"Ошибка вебхука: {e}")
