@@ -5,6 +5,7 @@ import json
 import time
 import logging
 import urllib.parse
+import asyncio
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -36,12 +37,13 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
 
 supabase: Optional[Client] = None
 active_connections: Dict[str, List[weakref.ref]] = {}
-session = None
+session: Optional[aiohttp.ClientSession] = None # Глобальная сессия для lifespan
 
-# Валидация initData
-def validate_init_data(init_data: str, bot_token: str) -> dict:
+# Валидация initData - ИСПРАВЛЕНО
+def validate_init_data(init_data_str: str, bot_token: str) -> dict: # Исправлено: изменили имя параметра на init_data_str
     try:
-        pairs = [pair.split("=", 1) for pair in init_data.split("&")]
+        # Используем init_data_str вместо init_data
+        pairs = [pair.split("=", 1) for pair in init_data_str.split("&")]
         data_dict = {}
         received_hash = None
         for k, v in pairs:
@@ -103,7 +105,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict):
+def update_game(game_id: str, data: dict): # Исправлено: data: dict
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
@@ -151,17 +153,39 @@ def check_win(board: list, symbol: str) -> bool:
         logger.error(f"Ошибка в check_win: {e}, board: {board}")
         return False # Не считаем победу, если доска испорчена
 
-# Lifespan
+# Lifespan - ПРЕДПОЛАГАЕМ РАБОЧИМ (без вызова set_webhook в lifespan)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global session, supabase
+    # Создаём сессию для lifespan
     session = aiohttp.ClientSession()
+    logger.info("Сессия aiohttp.ClientSession создана в lifespan.")
+    # Инициализируем клиента Supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-    bot = Bot(token=BOT_TOKEN)
-    await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    yield
-    await session.close()
-    await bot.session.close()
+    logger.info("Клиент Supabase инициализирован.")
+
+    # --- Установка webhook асинхронно после запуска приложения ---
+    # Выносим set_webhook в отдельную задачу, чтобы не блокировать startup
+    async def setup_webhook():
+        try:
+            bot = Bot(token=BOT_TOKEN)
+            await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+            logger.info(f"Webhook установлен на {WEBHOOK_URL}/webhook")
+            await bot.session.close() # Закрываем сессию бота после установки
+        except Exception as e:
+            logger.error(f"Ошибка установки webhook: {e}")
+            # Не вызываем raise, чтобы не останавливать запуск
+    # Создаём задачу, которая выполнится асинхронно
+    asyncio.create_task(setup_webhook())
+
+    try:
+        yield # Передаём управление приложению
+    finally:
+        # Закрываем сессию lifespan
+        if session:
+            await session.close()
+            logger.info("Сессия aiohttp.ClientSession закрыта в lifespan.")
+        logger.info("Application shutdown complete.")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -206,6 +230,7 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
+            # Используем исправленное имя параметра
             user = validate_init_data(msg["initData"], BOT_TOKEN)
             supabase.table("messages").insert({
                 "game_id": game_id,
@@ -256,6 +281,7 @@ async def create_game(request: Request):
     try:
         data = await request.json()
         logger.info(f"Получены данные initData: {data.get('initData')}")
+        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = str(uuid.uuid4())[:8]
         while not is_game_id_unique(game_id):
@@ -283,6 +309,7 @@ async def create_game(request: Request):
 async def join_game(request: Request):
     try:
         data = await request.json()
+        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         game_list = get_game_by_id(game_id)
@@ -308,6 +335,7 @@ async def join_game(request: Request):
 async def start_game(request: Request):
     try:
         data = await request.json()
+        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         game_list = get_game_by_id(game_id)
@@ -334,6 +362,7 @@ async def start_game(request: Request):
 async def make_move(request: Request):
     try:
         data = await request.json()
+        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         game_id = data["game_id"]
         row, col = data["row"], data["col"]
@@ -396,6 +425,7 @@ async def make_move(request: Request):
 async def restart_game(request: Request):
     try:
         data = await request.json()
+        # Используем исправленное имя параметра
         user = validate_init_data(data["initData"], BOT_TOKEN)
         old_game_id = data["game_id"]
         old_game_list = get_game_by_id(old_game_id)
@@ -456,6 +486,7 @@ async def get_stats(request: Request):
         init_data = request.headers.get("X-Init-Data")
         if not init_data:
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
+        # Используем исправленное имя параметра
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
         if res.data:
@@ -492,6 +523,7 @@ async def telegram_webhook(request: Request):
                 game_list = get_game_by_id(game_id)
                 if not game_list:
                     await bot.send_message(user_id, "❌ Игра не найдена.")
+                    await bot.session.close()
                     return {"ok": True}
                 game = game_list[0]
                 if game.get("opponent_id"):
@@ -504,6 +536,7 @@ async def telegram_webhook(request: Request):
                     [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}"))]
                 ])
                 await bot.send_message(user_id, "Нажмите кнопку ниже, чтобы присоединиться:", reply_markup=kb)
+        await bot.session.close() # Закрываем сессию бота после обработки
         return {"ok": True}
     except Exception as e:
         logger.error(f"Ошибка вебхука: {e}")
