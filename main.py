@@ -37,31 +37,42 @@ session = None
 
 def validate_init_data(init_data: str, bot_token: str) -> dict:
     try:
+        if not init_data:
+            raise ValueError("initData отсутствует")
+
         pairs = [pair.split("=", 1) for pair in init_data.split("&")]
         data_dict = {}
         received_hash = None
+
         for k, v in pairs:
             if k == "hash":
                 received_hash = urllib.parse.unquote(v)
             else:
                 data_dict[k] = urllib.parse.unquote(v)
+
         if received_hash is None:
             raise ValueError("Хэш не найден")
+
         auth_date = int(data_dict.get("auth_date", 0))
         if time.time() - auth_date > 86400:
             raise HTTPException(status_code=403, detail="Истекло время действия initData")
+
         data_check_pairs = [(k, v) for k, v in data_dict.items() if k != "hash"]
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data_check_pairs))
+
         secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
         if computed_hash != received_hash:
             raise HTTPException(status_code=403, detail="Некорректный хэш")
+
         user_data = json.loads(data_dict["user"])
         logger.info(f"Пользователь успешно валидирован: ID {user_data.get('id')}")
         return user_data
+
     except Exception as e:
-        logger.error(f"Ошибка валидации: {e}")
-        raise HTTPException(status_code=403, detail="Некорректные данные initData")
+        logger.error(f"Ошибка валидации initData: {e}")
+        raise HTTPException(status_code=403, detail=f"Некорректные данные initData: {e}")
 
 def is_game_id_unique(game_id: str) -> bool:
     try:
@@ -74,22 +85,26 @@ def is_game_id_unique(game_id: str) -> bool:
 def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
-        if result.data:
-            game_data = result.data[0]
-            board = game_data.get("board")
-            if isinstance(board, str):
-                try:
-                    parsed_board = json.loads(board)
-                    if isinstance(parsed_board, list) and len(parsed_board) == 3 and all(isinstance(row, list) and len(row) == 3 for row in parsed_board):
-                        game_data["board"] = parsed_board
-                    else:
-                        logger.error(f"Доска для игры {game_id} — некорректный JSON массив 3x3: {board}")
-                        return None
-                except json.JSONDecodeError:
-                    logger.error(f"Доска для игры {game_id} — некорректный JSON: {board}")
+        if not result.data:
+            return None
+
+        game_data = result.data[0]
+        board = game_data.get("board")
+
+        if isinstance(board, str):
+            try:
+                parsed_board = json.loads(board)
+                if isinstance(parsed_board, list) and len(parsed_board) == 3 and all(isinstance(row, list) and len(row) == 3 for row in parsed_board):
+                    game_data["board"] = parsed_board
+                else:
+                    logger.error(f"Доска для игры {game_id} — некорректный JSON массив 3x3: {board}")
                     return None
-            return result.data
-        return None
+            except json.JSONDecodeError:
+                logger.error(f"Доска для игры {game_id} — некорректный JSON: {board}")
+                return None
+
+        return result.data
+
     except Exception as e:
         logger.error(f"Ошибка получения игры: {e}")
         return None
@@ -108,7 +123,9 @@ def update_game(game_id: str, data: dict):
             except json.JSONDecodeError:
                 logger.error(f"Доска в update_game — некорректный JSON: {board}")
                 return
+
         supabase.table("games").update(data).eq("id", game_id).execute()
+
     except Exception as e:
         logger.error(f"Ошибка обновления игры: {e}")
 
@@ -165,6 +182,7 @@ async def game_websocket(websocket: WebSocket, game_id: str):
     if game_id not in active_connections:
         active_connections[game_id] = []
     active_connections[game_id].append(weakref.ref(websocket))
+
     try:
         game = get_game_by_id(game_id)
         if game:
@@ -258,7 +276,7 @@ async def create_game(request: Request):
         return {"game_id": game_id, "invite_link": invite_link}
     except Exception as e:
         logger.error(f"Ошибка создания игры: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
 
 @app.post("/api/join-game")
 async def join_game(request: Request):
@@ -283,7 +301,7 @@ async def join_game(request: Request):
         raise
     except Exception as e:
         logger.error(f"Ошибка присоединения к игре: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
 
 @app.post("/api/start-game")
 async def start_game(request: Request):
@@ -309,7 +327,7 @@ async def start_game(request: Request):
         raise
     except Exception as e:
         logger.error(f"Ошибка начала игры: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
 
 @app.post("/api/make-move")
 async def make_move(request: Request):
@@ -381,7 +399,7 @@ async def make_move(request: Request):
         raise
     except Exception as e:
         logger.error(f"Ошибка хода: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
 
 @app.post("/api/restart-game")
 async def restart_game(request: Request):
@@ -430,11 +448,11 @@ async def restart_game(request: Request):
         raise
     except Exception as e:
         logger.error(f"Ошибка перезапуска игры: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
 
 @app.get("/api/stats")
 async def get_stats(request: Request):
-    try:
+    try {
         init_data = request.headers.get("X-Init-Data")
         if not init_data:
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
@@ -449,47 +467,53 @@ async def get_stats(request: Request):
             "losses": 0,
             "draws": 0
         }
-    except HTTPException:
+    } catch HTTPException {
         raise
-    except Exception as e:
+    } catch Exception as e {
         logger.error(f"Ошибка получения статистики: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
+    }
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    try:
+    try {
         bot = Bot(token=BOT_TOKEN)
         update_data = await request.json()
         update = Update(**update_data)
-        if update.message and update.message.text:
+        if update.message and update.message.text {
             text = update.message.text.strip()
             user_id = update.message.from_user.id
-            if text == "/start":
+            if text == "/start" {
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Создать новую игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html"))]
                 ])
                 await bot.send_message(user_id, "Нажмите, чтобы создать новую игру!", reply_markup=kb)
-            elif text.startswith("/start "):
+            } else if text.startswith("/start ") {
                 game_id = text.split(" ", 1)[1].strip()
                 game_list = get_game_by_id(game_id)
-                if not game_list:
+                if not game_list {
                     await bot.send_message(user_id, "❌ Игра не найдена.")
                     return {"ok": True}
+                }
                 game = game_list[0]
-                if game.get("opponent_id"):
+                if game.get("opponent_id") {
                     await bot.send_message(user_id, "❌ Игра уже заполнена.")
-                elif str(game["creator_id"]) == str(user_id):
+                } else if str(game["creator_id"]) == str(user_id) {
                     await bot.send_message(user_id, "Вы — создатель игры. Открываете свою игру...")
-                else:
+                } else {
                     await bot.send_message(user_id, "🎮 Присоединяйтесь к игре!")
+                }
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Открыть игру", web_app=WebAppInfo(url=f"{WEBHOOK_URL}/mini/index.html?startapp={game_id}"))]
                 ])
                 await bot.send_message(user_id, "Нажмите кнопку ниже, чтобы присоединиться:", reply_markup=kb)
+            }
+        }
         return {"ok": True}
-    except Exception as e:
+    } catch Exception as e {
         logger.error(f"Ошибка вебхука: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
+    }
 
 @app.get("/mini/index.html")
 async def serve_index():
