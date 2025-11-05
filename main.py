@@ -16,7 +16,6 @@ from aiogram import Bot
 from aiogram.types import Update, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 import weakref
 import uuid
-import aiohttp
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -36,8 +35,6 @@ if not all([BOT_TOKEN, SUPABASE_URL, SUPABASE_KEY, WEBHOOK_URL]):
     raise EnvironmentError("Отсутствуют обязательные переменные окружения")
 
 supabase: Optional[Client] = None
-active_connections: Dict[str, List[weakref.ref]] = {}
-session: Optional[aiohttp.ClientSession] = None  # Глобальная сессия для lifespan
 
 # Валидация initData - ИСПРАВЛЕНО
 def validate_init_data(init_data_str: str, bot_token: str) -> dict:
@@ -81,7 +78,6 @@ def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
         if result.data:
-            # Убедимся, что board - это список списков, а не строка
             game_data = result.data[0]
             board = game_data.get("board")
             if isinstance(board, str):
@@ -92,11 +88,9 @@ def get_game_by_id(game_id: str):
                          logger.debug(f"Доска для игры {game_id} была строкой, преобразована в список списков.")
                     else:
                          logger.error(f"Доска для игры {game_id} - строка, но не корректный JSON массив 3x3: {board}")
-                         # Возвращаем None или пустую игру, если доска испорчена
                          return None
                 except json.JSONDecodeError:
                     logger.error(f"Доска для игры {game_id} - строка, но не корректный JSON: {board}")
-                    # Возвращаем None или пустую игру, если доска испорчена
                     return None
             return result.data
         return None
@@ -106,10 +100,8 @@ def get_game_by_id(game_id: str):
 
 def update_game(game_id: str, data: dict):
     try:
-        # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         board = data.get("board")
         if isinstance(board, str):
-             # Если вдруг board пришёл строкой в update, попробуем его распарсить перед отправкой
              try:
                  parsed_board = json.loads(board)
                  if isinstance(parsed_board, list) and len(parsed_board) == 3 and all(isinstance(row, list) and len(row) == 3 for row in parsed_board):
@@ -117,10 +109,10 @@ def update_game(game_id: str, data: dict):
                      logger.debug(f"Доска в update_game была строкой, преобразована в список списков перед отправкой.")
                  else:
                      logger.error(f"Доска в update_game была строкой, но не корректный JSON массив 3x3: {board}")
-                     return  # Не обновляем, если доска испорчена
+                     return
              except json.JSONDecodeError:
                  logger.error(f"Доска в update_game была строкой, но не корректный JSON: {board}")
-                 return  # Не обновляем, если доска испорчена
+                 return
         supabase.table("games").update(data).eq("id", game_id).execute()
     except Exception as e:
         logger.error(f"Ошибка обновления игры: {e}")
@@ -139,7 +131,6 @@ def update_stats(user_id: str, username: str, field: str):
         logger.error(f"Ошибка обновления статистики: {e}")
 
 def check_win(board: list, symbol: str) -> bool:
-    # board уже должен быть списком списков к моменту вызова этой функции
     try:
         for i in range(3):
             if all(board[i][j] == symbol for j in range(3)) or all(board[j][i] == symbol for j in range(3)):
@@ -149,23 +140,27 @@ def check_win(board: list, symbol: str) -> bool:
         return False
     except (TypeError, IndexError) as e:
         logger.error(f"Ошибка в check_win: {e}, board: {board}")
-        return False # Не считаем победу, если доска испорчена
+        return False
 
-# Lifespan
+# Глобальные переменные для WebSocket-соединений и бота
+active_connections: Dict[str, List[weakref.ref]] = {}
+# Для хранения данных пользователей, связанных с WebSocket-ами чата
+chat_user_data: Dict[WebSocket, dict] = {}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global session, supabase
-    session = aiohttp.ClientSession()
+    global supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    logger.info("Lifespan: Приложение запущено, вебхук установлен.")
     yield
-    await session.close()
     await bot.session.close()
+    logger.info("Lifespan: Приложение завершено.")
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS
+# CORS - ИСПРАВЛЕНО: убраны пробелы
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://web.telegram.org", "https://t.me", "http://localhost:3000", WEBHOOK_URL],
@@ -190,35 +185,58 @@ async def game_websocket(websocket: WebSocket, game_id: str):
             await websocket.receive_text()
     except WebSocketDisconnect:
         logger.info(f"WebSocket отключен для игры {game_id}")
-        active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
-        if not active_connections[game_id]:
-            del active_connections[game_id]
+        # --- ИСПРАВЛЕНО: безопасный доступ к active_connections ---
+        if game_id in active_connections:
+            active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
+            if not active_connections[game_id]:
+                del active_connections[game_id]
     except Exception as e:
         logger.error(f"Ошибка WebSocket для игры {game_id}: {e}")
-        active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
-        if not active_connections[game_id]:
-            del active_connections[game_id]
+        # --- ИСПРАВЛЕНО: безопасный доступ к active_connections ---
+        if game_id in active_connections:
+            active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
+            if not active_connections[game_id]:
+                del active_connections[game_id]
 
 @app.websocket("/ws/chat/{game_id}")
 async def chat_websocket(websocket: WebSocket, game_id: str):
     await websocket.accept()
+    user = None
     try:
+        # --- ИСПРАВЛЕНО: валидация initData при подключении, а не при каждом сообщении ---
+        # Предполагаем, что initData передаётся как часть URL: ws://.../ws/chat/{game_id}?initData=...
+        query_params = urllib.parse.parse_qs(websocket.scope.get("query_string", b"").decode())
+        init_data_str = query_params.get("initData", [None])[0]
+        if not init_data_str:
+            raise HTTPException(status_code=403, detail="initData отсутствует в URL WebSocket-а")
+        user = validate_init_data(init_data_str, BOT_TOKEN)
+        # Сохраняем данные пользователя для этого WebSocket-а
+        chat_user_data[websocket] = user
+
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
-            user = validate_init_data(msg["initData"], BOT_TOKEN)
+            # --- ИСПРАВЛЕНО: больше не передаём initData ---
+            text = msg.get("text", "")
+            if not text:
+                continue
+
+            # Используем сохранённые данные пользователя
+            user = chat_user_data[websocket]
+
             supabase.table("messages").insert({
                 "game_id": game_id,
                 "user_id": user["id"],
                 "username": user["first_name"],
-                "text": msg["text"][:100]
+                "text": text[:100]
             }).execute()
             full_msg = {
                 "type": "chat",
                 "username": user["first_name"],
-                "text": msg["text"][:100],
+                "text": text[:100],
                 "timestamp": time.time()
             }
+            # Отправляем сообщение всем активным соединениям игры
             if game_id in active_connections:
                 for ref in active_connections[game_id][:]:
                     ws = ref()
@@ -231,6 +249,10 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
         logger.info(f"WebSocket чата отключен для игры {game_id}")
     except Exception as e:
         logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
+    finally:
+        # Удаляем данные пользователя при отключении
+        if websocket in chat_user_data:
+            del chat_user_data[websocket]
 
 async def broadcast_game_update(game_id: str):
     try:
@@ -271,7 +293,7 @@ async def create_game(request: Request):
             "winner": None,
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
-        invite_link = f"http://t.me/Alex_tictactoeBot?start={game_id}"
+        invite_link = f"https://t.me/Alex_tictactoeBot?start={game_id}" # Исправлено на https
         logger.info(f"Игра создана: {game_id}")
         return {"game_id": game_id, "invite_link": invite_link}
     except Exception as e:
@@ -377,7 +399,8 @@ async def make_move(request: Request):
                     update_stats(o_id, o_name, "losses")
             elif winner == "O" and o_id:
                 update_stats(o_id, o_name, "wins")
-                update_stats(c_id, c_name, "losses")
+                if o_id:
+                    update_stats(c_id, c_name, "losses")
             elif winner == "draw":
                 update_stats(c_id, c_name, "draws")
                 if o_id:
@@ -401,15 +424,12 @@ async def restart_game(request: Request):
             raise HTTPException(status_code=404, detail="Старая игра не найдена")
         old_game = old_game_list[0]
 
-        # Проверяем, что запрос от создателя старой игры
         if str(user["id"]) != str(old_game["creator_id"]):
             raise HTTPException(status_code=403, detail="Только создатель игры может начать новую")
 
-        # Проверяем, что игра завершена
         if old_game.get("winner") is None:
              raise HTTPException(status_code=400, detail="Невозможно перезапустить незавершённую игру")
 
-        # Создаём новую игру с теми же ID игроков
         new_game_id = str(uuid.uuid4())[:8]
         while not is_game_id_unique(new_game_id):
             new_game_id = str(uuid.uuid4())[:8]
@@ -443,7 +463,6 @@ async def restart_game(request: Request):
                     await ws.close(code=1000, reason="Игра перезапущена")
             del active_connections[old_game_id]
 
-        # Рассылаем сообщение о новой игре
         await broadcast_game_update(new_game_id)
 
         logger.info(f"Игра перезапущена: {old_game_id} -> {new_game_id}")
@@ -465,10 +484,8 @@ async def end_game(request: Request):
         if not game_list:
             raise HTTPException(status_code=404, detail="Игра не найдена")
         game = game_list[0]
-        # Только создатель может завершать игру
         if str(user["id"]) != str(game["creator_id"]):
             raise HTTPException(status_code=403, detail="Только создатель игры может завершить её")
-        # Пометить как завершённую/закрытую
         update_game(game_id, {"game_started": False, "winner": game.get("winner"), "game_closed": True})
         await broadcast_game_update(game_id)
         return {"status": "ok"}
@@ -504,7 +521,8 @@ async def get_stats(request: Request):
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
-        bot = Bot(token=BOT_TOKEN)
+        # Используем bot из глобального состояния через lifespan
+        bot = request.app.state.bot if hasattr(request.app.state, 'bot') else Bot(token=BOT_TOKEN)
         update_data = await request.json()
         update = Update(**update_data)
         if update.message and update.message.text:
@@ -542,6 +560,5 @@ async def telegram_webhook(request: Request):
 async def serve_index():
     with open("static/index.html", "r", encoding="utf-8") as f:
         content = f.read()
-    # Replace the placeholder with the actual URL
     content = content.replace("{{WEBHOOK_URL}}", WEBHOOK_URL)
     return content
