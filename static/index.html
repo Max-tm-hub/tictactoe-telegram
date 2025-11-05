@@ -163,6 +163,7 @@
         }
         const Telegram = window.Telegram.WebApp;
         Telegram.expand();
+        // Убраны лишние пробелы из URL
         const BACKEND = "https://tictactoe-telegram.onrender.com";
         let gameId = null;
         let gameWs = null;
@@ -197,6 +198,7 @@
         const startParam = initDataUnsafe?.start_param || startParamFromURL;
 
         function connectGameWs(gameId) {
+            console.log("Попытка подключения к WebSocket игры:", gameId);
             const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
             gameWs = new WebSocket(`${wsUrl}/ws/${gameId}`);
             gameWs.onopen = () => {
@@ -210,6 +212,21 @@
                 } else if (msg.type === "chat") {
                     chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
                     chatMessages.scrollTop = chatMessages.scrollHeight;
+                } else if (msg.type === "restart") {
+                    // Обработка перезапуска: переключение на новую игру
+                    const newGameId = msg.new_game_id;
+                    if (gameWs) {
+                        try { gameWs.close(); } catch {}
+                    }
+                    if (chatWs) {
+                        try { chatWs.close(); } catch {}
+                    }
+                    gameId = newGameId;
+                    connectGameWs(newGameId);
+                    connectChatWs(newGameId);
+                    statusDiv.textContent = "Переключились на новую партию. Ожидание данных...";
+                    boardDiv.style.display = 'none';
+                    renderEmptyBoard();
                 }
             };
             gameWs.onclose = (event) => {
@@ -226,6 +243,7 @@
         }
 
         function connectChatWs(gameId) {
+            console.log("Попытка подключения к WebSocket чата:", gameId);
             const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
             if (chatWs) {
                 chatWs.close();
@@ -234,6 +252,7 @@
             chatWs.onopen = () => {
                 console.log("WebSocket соединение установлено для чата", gameId);
                 sendBtn.disabled = false;
+                sendBtn.style.backgroundColor = '#4caf50'; // Вернуть цвет
             };
             chatWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
@@ -245,21 +264,25 @@
             };
             chatWs.onclose = (event) => {
                 console.log("WebSocket чата отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
+                sendBtn.disabled = true;
+                sendBtn.style.backgroundColor = '#cccccc'; // Серый цвет при отключении
             };
             chatWs.onerror = (error) => {
                 console.error("Ошибка WebSocket чата для", gameId, error);
-                sendBtn.style.backgroundColor = '#f44336';
+                sendBtn.style.backgroundColor = '#f44336'; // Красный при ошибке
                 sendBtn.disabled = true;
             };
         }
 
         async function loadStats() {
             try {
+                console.log("Отправка запроса на загрузку статистики.");
                 const res = await fetch(`${BACKEND}/api/stats`, {
                     headers: { 'X-Init-Data': Telegram.initData }
                 });
                 const stats = await res.json();
                 statsDiv.innerHTML = `🏆 ${stats.wins || 0} побед | 💀 ${stats.losses || 0} поражений | 🤝 ${stats.draws || 0} ничьих`;
+                console.log("Статистика загружена:", stats);
             } catch (e) {
                 statsDiv.innerHTML = `🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих`;
                 console.error(`Ошибка загрузки статистики: ${e.message}`);
@@ -268,6 +291,7 @@
 
         async function createGame() {
             try {
+                console.log("Отправка запроса на создание игры.");
                 const res = await fetch(`${BACKEND}/api/create-game`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -278,12 +302,14 @@
                 }
                 const data = await res.json();
                 gameId = data.game_id;
+                // Добавлен id="inviteLinkAnchor" для корректного поиска в copyLinkBtn.onclick
                 inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a id="inviteLinkAnchor" href="${data.invite_link}" target="_blank">${data.invite_link}</a>`;
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
                 boardDiv.style.display = 'none';
                 renderEmptyBoard();
+                console.log("Игра создана, ID:", gameId);
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
                 Telegram.WebApp.showPopup({ title: "Ошибка", message: "Не удалось создать игру." });
@@ -293,6 +319,7 @@
 
         async function joinGame(gameId) {
             try {
+                console.log("Отправка запроса на присоединение к игре:", gameId);
                 const res = await fetch(`${BACKEND}/api/join-game`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -305,6 +332,7 @@
                 connectChatWs(gameId);
                 statusDiv.textContent = "Вы присоединились к игре!";
                 boardDiv.style.display = 'none';
+                console.log("Присоединение к игре успешно, ID:", gameId);
             } catch (e) {
                 statusDiv.textContent = "Не удалось присоединиться.";
                 Telegram.WebApp.showPopup({ title: "Ошибка", message: "Игра не найдена или уже заполнена." });
@@ -314,6 +342,7 @@
 
         async function startGame() {
             try {
+                console.log("Отправка запроса на начало игры:", gameId);
                 const res = await fetch(`${BACKEND}/api/start-game`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -322,6 +351,7 @@
                 if (!res.ok) {
                     throw new Error("Не удалось начать игру");
                 }
+                console.log("Запрос на начало игры отправлен.");
             } catch (e) {
                 Telegram.WebApp.showPopup({ title: "Ошибка", message: "Не удалось начать игру." });
                 console.error(`Ошибка начала игры: ${e.message}`);
@@ -330,6 +360,7 @@
 
         async function restartGame() {
             try {
+                console.log("Отправка запроса на перезапуск игры:", gameId);
                 const res = await fetch(`${BACKEND}/api/restart-game`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -339,8 +370,8 @@
                     throw new Error("Не удалось перезапустить игру");
                 }
                 const data = await res.json();
-                gameId = data.new_game_id;
-                console.log("Запрос на перезапуск игры отправлен. Ожидание новой игры с ID:", gameId);
+                // gameId обновляется на новый ID в обработчике сообщения 'restart' от WebSocket
+                console.log("Запрос на перезапуск игры отправлен. Новый ID будет получен через WebSocket.");
             } catch (e) {
                 Telegram.WebApp.showPopup({ title: "Ошибка", message: "Не удалось перезапустить игру." });
                 console.error(`Ошибка перезапуска игры: ${e.message}`);
@@ -349,6 +380,7 @@
 
         async function endGameFromModal() {
             try {
+                console.log("Отправка запроса на завершение игры:", gameId);
                 const res = await fetch(`${BACKEND}/api/end-game`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -358,6 +390,7 @@
                     throw new Error("Не удалось завершить игру");
                 }
                 hideEndModal();
+                console.log("Запрос на завершение игры отправлен.");
             } catch (e) {
                 Telegram.WebApp.showPopup({ title: "Ошибка", message: "Не удалось завершить игру." });
                 console.error(`Ошибка завершения игры: ${e.message}`);
@@ -413,6 +446,10 @@
             const creatorName = game.creator_name;
             const isFinished = Boolean(game.winner) || game.winner === "draw";
 
+            // Обновляем кнопки
+            restartGameBtn.style.display = 'inline-block'; // Кнопка "Новая игра" всегда видна после начала
+            closeGameBtn.style.display = 'inline-block'; // Кнопка "Закрыть игру" всегда видна
+
             if (game.winner === 'draw') {
                 statusDiv.textContent = "Ничья!";
             } else if (game.winner) {
@@ -461,7 +498,8 @@
                             if (val === 'X' || val === 'O') {
                                 cell.textContent = val;
                                 cell.classList.add(val.toLowerCase());
-                                const isWinnerCell = game.winner && val === game.winner;
+                                // Подсветка победителя - проверяем, есть ли выигрышная комбинация и включает ли она эту ячейку
+                                const isWinnerCell = game.winner && val === game.winner && Array.isArray(game.win_combo) && game.win_combo.includes(`${i},${j}`);
                                 if (isWinnerCell) cell.classList.add('winner');
                             } else {
                                 cell.textContent = '';
@@ -480,6 +518,7 @@
                         statusDiv.textContent = "Ход соперника...";
                     }
                 } else {
+                    // Окончание: показать модальное окно и кнопки для создателя
                     showEndModal(isCreator, game);
                 }
             }
@@ -504,6 +543,7 @@
                 endText = `Победил(а): ${winnerName}`;
             }
             endWinnerText.textContent = endText;
+            // Кнопки: у создателя есть все варианты
             if (isCreator) {
                 endGameBtn.style.display = 'inline-block';
                 restartGameModalBtn.style.display = 'inline-block';
@@ -515,9 +555,12 @@
             endModal.style.display = 'flex';
             endModalShown = true;
 
+            // Привязка кнопок (одиноразовая привязка безопасна, можно привязывать повторно при повторном показе)
             endGameBtn.onclick = endGameFromModal;
             restartGameModalBtn.onclick = () => {
+                // Повторная игра через сервер
                 restartGame();
+                hideEndModal(); // Скрываем модальное окно после отправки запроса
             };
             closeEndModalBtn.onclick = () => {
                 hideEndModal();
@@ -527,17 +570,25 @@
         function hideEndModal() {
             endModal.style.display = 'none';
             endModalShown = false;
+            // Очистить кнопки
             endGameBtn.style.display = 'none';
             restartGameModalBtn.style.display = 'none';
         }
 
+        // Исправленная функция копирования ссылки
         copyLinkBtn.onclick = () => {
+            // Теперь ищем элемент по id
             const linkEl = document.getElementById('inviteLinkAnchor');
-            if (!linkEl) return;
+            if (!linkEl) {
+                console.error("Элемент ссылки не найден для копирования.");
+                Telegram.WebApp.showPopup({ title: "❌ Ошибка", message: "Не удалось найти ссылку для копирования." });
+                return;
+            }
             const url = linkEl.href;
             navigator.clipboard.writeText(url).then(() => {
                 Telegram.WebApp.showPopup({ title: "✅ Скопировано!", message: "Ссылка скопирована!" });
-            }).catch(() => {
+            }).catch(err => {
+                console.error('Ошибка копирования ссылки: ', err);
                 Telegram.WebApp.showPopup({ title: "❌ Ошибка", message: "Не удалось скопировать ссылку." });
             });
         };
