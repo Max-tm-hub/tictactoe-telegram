@@ -40,7 +40,7 @@ active_connections: Dict[str, List[weakref.ref]] = {}
 session: Optional[aiohttp.ClientSession] = None # Глобальная сессия для lifespan
 
 # Валидация initData
-def validate_init_data(init_ str, bot_token: str) -> dict: # Исправлено: init_data: str
+def validate_init_data(init_data: str, bot_token: str) -> dict: # Исправлено: init_data: str
     try:
         pairs = [pair.split("=", 1) for pair in init_data.split("&")]
         data_dict = {}
@@ -104,7 +104,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str,  dict): # Исправлено: data: dict
+def update_game(game_id: str, data: dict): # Исправлено: data: dict
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
@@ -482,7 +482,7 @@ async def get_stats(request: Request):
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res. # Исправлено: res.data, а не res.
+        if res.data: # Исправлено: res.data, а не res.
             return res.data[0]
         return {
             "user_id": user["id"],
