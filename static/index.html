@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Крестики-нолики</title>
-    <!-- Убираем пробелы из src -->
+    
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -66,7 +66,7 @@
             margin: 10px 0;
         }
         #restartGameBtn, #closeGameBtn {
-            background-color: #2196f3; /* Синий для перезапуска */
+            background-color: #2196f3; /* Синий для перезапуска/закрытия */
         }
         #closeGameBtn {
             background-color: #f44336; /* Красный для закрытия */
@@ -101,13 +101,39 @@
             border-radius: 5px;
             cursor: pointer;
         }
+
+        /* Модальное окно окончания игры */
+        #endModal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            align-items: center;
+            justify-content: center;
+        }
+        #endModal .modal-content {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 280px;
+        }
+        #endWinnerText {
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+        #endBtns button {
+            margin: 8px;
+            padding: 10px 16px;
+        }
     </style>
 </head>
 <body>
     <h1>Крестики-нолики</h1>
     <div id="stats">🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих</div>
     <div id="status" class="status">Загрузка...</div>
-    <div id="board" class="board"></div> <!-- Поле будет отображаться только после начала игры -->
+    <div id="board" class="board"></div> 
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
@@ -118,6 +144,19 @@
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
         <button id="sendBtn">Отправить</button>
     </div>
+
+    
+    <div id="endModal">
+        <div class="modal-content">
+            <div id="endWinnerText">Игра окончена</div>
+            <div id="endBtns" class="end-buttons">
+                <button id="endGameBtn" style="display:none;">Завершить игру</button>
+                <button id="restartGameModalBtn" style="display:none;">Перезапустить игру</button>
+                <button id="closeEndModalBtn">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Убедимся, что Telegram.WebApp инициализирован
         if (!window.Telegram || !window.Telegram.WebApp) {
@@ -144,6 +183,16 @@
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
+
+        // Элементы модального окна окончания
+        const endModal = document.getElementById('endModal');
+        const endWinnerText = document.getElementById('endWinnerText');
+        const endGameBtn = document.getElementById('endGameBtn');
+        const restartGameModalBtn = document.getElementById('restartGameModalBtn');
+        const closeEndModalBtn = document.getElementById('closeEndModalBtn');
+
+        // Флаг показа окна окончания, чтобы не показывать его повторно
+        let endModalShown = false;
 
         // Проверяем, что initDataUnsafe определён и содержит user
         if (!Telegram.initDataUnsafe || !Telegram.initDataUnsafe.user) {
@@ -172,12 +221,26 @@
                 } else if (msg.type === "chat") {
                     chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
                     chatMessages.scrollTop = chatMessages.scrollHeight;
+                } else if (msg.type === "restart") {
+                    // Обработка перезапуска: переключение на новую игру
+                    const newGameId = msg.new_game_id;
+                    if (gameWs) {
+                        try { gameWs.close(); } catch {}
+                    }
+                    if (chatWs) {
+                        try { chatWs.close(); } catch {}
+                    }
+                    gameId = newGameId;
+                    connectGameWs(newGameId);
+                    connectChatWs(newGameId);
+                    statusDiv.textContent = "Переключились на новую партию. Ожидание данных...";
+                    boardDiv.style.display = 'none';
+                    renderEmptyBoard();
                 }
             };
             gameWs.onclose = (event) => {
                  if (event.code === 1000 && event.reason === "Игра перезапущена") {
                      console.log("WebSocket игры закрыт сервером: игра перезапущена.");
-                     // Ничего не делаем, renderGame обработает новую игру
                  } else {
                       statusDiv.textContent = "Соединение с игрой потеряно.";
                       console.log("WebSocket игры отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
@@ -197,13 +260,12 @@
              chatWs = new WebSocket(`${wsUrl}/ws/chat/${gameId}`);
              chatWs.onopen = () => {
                   console.log("WebSocket соединение установлено для чата", gameId);
-                  // Сбрасываем стили кнопки отправки, если были ошибки
-                  sendBtn.style.backgroundColor = '#4caf50';
-                  sendBtn.disabled = false; // Возвращаем кнопку в активное состояние
-             };
+                  // Включаем кнопку отправки
+                  sendBtn.disabled = false;
+              };
              chatWs.onmessage = (event) => {
                  const msg = JSON.parse(event.data);
-                 console.log("Получено сообщение от WebSocket чата:", msg); // Логирование
+                 console.log("Получено сообщение от WebSocket чата:", msg);
                  if (msg.type === "chat") {
                       chatMessages.innerHTML += `<div><b>${msg.username}:</b> ${msg.text}</div>`;
                       chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -211,12 +273,9 @@
              };
              chatWs.onclose = (event) => {
                   console.log("WebSocket чата отключен для игры", gameId, "Код:", event.code, "Причина:", event.reason);
-                  // Попытка переподключения через 5 секунд
-                  // setTimeout(() => connectChatWs(gameId), 5000);
              };
              chatWs.onerror = (error) => {
                   console.error("Ошибка WebSocket чата для", gameId, error);
-                  // Помечаем кнопку как неактивную при ошибке
                   sendBtn.style.backgroundColor = '#f44336';
                   sendBtn.disabled = true;
              };
@@ -251,8 +310,8 @@
                 copyLinkBtn.style.display = 'block';
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
-                boardDiv.style.display = 'none'; // Скрываем доску для создателя до начала игры
-                renderEmptyBoard(); // Отрисовка пустой доски для создателя до подключения второго игрока
+                boardDiv.style.display = 'none';
+                renderEmptyBoard();
             } catch (e) {
                 statusDiv.textContent = "Ошибка создания игры.";
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось создать игру." });
@@ -271,10 +330,9 @@
                     throw new Error("Не удалось присоединиться к игре");
                 }
                 connectGameWs(gameId);
-                connectChatWs(gameId); // Подключаем чат при присоединении
+                connectChatWs(gameId);
                 statusDiv.textContent = "Вы присоединились к игре!";
-                boardDiv.style.display = 'none'; // Скрываем доску до начала игры
-                // renderEmptyBoard(); // Убираем эту строку, отрисовка теперь в renderGame
+                boardDiv.style.display = 'none';
             } catch (e) {
                 statusDiv.textContent = "Не удалось присоединиться.";
                 Telegram.showPopup({ title: "Ошибка", message: "Игра не найдена или уже заполнена." });
@@ -292,9 +350,6 @@
                 if (!res.ok) {
                     throw new Error("Не удалось начать игру");
                 }
-                // После успешного запроса сервер обновит состояние игры и отправит его через WebSocket.
-                // renderGame() будет вызван автоматически через onmessage.
-                // Можно добавить временное сообщение, например: statusDiv.textContent = "Начинаем игру...";
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось начать игру." });
                 console.error(`Ошибка начала игры: ${e.message}`);
@@ -314,19 +369,34 @@
                 const data = await res.json();
                 // gameId обновляется на новый ID
                 gameId = data.new_game_id;
-                // WebSocket будет закрыт сервером, и новое соединение установится через renderGame
                 console.log("Запрос на перезапуск игры отправлен. Ожидание новой игры с ID:", gameId);
-                // renderGame обработает новое состояние игры
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: "Не удалось перезапустить игру." });
                 console.error(`Ошибка перезапуска игры: ${e.message}`);
             }
         }
 
+        async function endGameFromModal() {
+            try {
+                const res = await fetch(`${BACKEND}/api/end-game`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData: Telegram.initData, game_id: gameId })
+                });
+                if (!res.ok) {
+                    throw new Error("Не удалось завершить игру");
+                }
+                // После завершения просто закроем модалку
+                hideEndModal();
+            } catch (e) {
+                Telegram.showPopup({ title: "Ошибка", message: "Не удалось завершить игру." });
+                console.error(`Ошибка завершения игры: ${e.message}`);
+            }
+        }
+
         async function makeMove(row, col) {
             console.log("Попытка сделать ход в ячейку:", row, col, "Game ID:", gameId);
             try {
-                // Проверим, что row и col - числа в нужном диапазоне
                 if (typeof row !== 'number' || typeof col !== 'number' || row < 0 || row > 2 || col < 0 || col > 2) {
                     throw new Error(`Некорректные координаты хода: row=${row}, col=${col}`);
                 }
@@ -336,7 +406,7 @@
                     body: JSON.stringify({ initData: Telegram.initData, game_id: gameId, row, col })
                 });
                 if (!res.ok) {
-                    const errorText = await res.text(); // Получим текст ошибки для логирования
+                    const errorText = await res.text();
                     console.error(`Сервер вернул ошибку: ${res.status} ${res.statusText}`, errorText);
                     throw new Error(`Сервер вернул ошибку: ${res.status} ${res.statusText}`);
                 }
@@ -359,139 +429,156 @@
         }
 
         function renderGame(game) {
-            console.log("Отрисовка игры с данными:", game); // Логирование
-            // Проверяем initDataUnsafe снова при отрисовке
+            console.log("Отрисовка игры с данными:", game);
             if (!Telegram.initDataUnsafe || !Telegram.initDataUnsafe.user) {
                 console.error("Telegram WebApp initDataUnsafe.user недоступен при отрисовке.");
                 statusDiv.textContent = "Ошибка: Не удалось получить данные пользователя.";
                 return;
             }
-            const user = Telegram.initDataUnsafe.user; // Получаем объект пользователя напрямую
+            const user = Telegram.initDataUnsafe.user;
             const myId = String(user.id);
             const isCreator = myId === String(game.creator_id);
             const mySymbol = isCreator ? 'X' : 'O';
             const opponentName = game.opponent_name || 'Ожидание...';
             const creatorName = game.creator_name;
 
-            console.log("Мой ID:", myId, "ID Создателя:", game.creator_id, "Я создатель:", isCreator); // Логирование
-
-            // Явно проверяем, есть ли поле winner и чему оно равно
-            const hasWinner = 'winner' in game;
-            const winnerValue = game.winner;
-            const isGameFinished = hasWinner && winnerValue !== null && winnerValue !== undefined;
-
-            console.log("hasWinner:", hasWinner, "winnerValue:", winnerValue, "isGameFinished:", isGameFinished); // Доп. лог
+            // Определяем, завершена ли игра
+            const isFinished = Boolean(game.winner) || game.winner === "draw";
 
             // Обновляем статус игры
             if (game.winner === 'draw') {
                 statusDiv.textContent = "Ничья!";
-            } else if (game.winner) { // Сюда попадаем, если winner === 'X' или 'O'
+            } else if (game.winner) {
                 const winnerName = game.winner === 'X' ? creatorName : opponentName;
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!game.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
-                document.getElementById('startGameBtn').style.display = 'none'; // Скрыть кнопку если второго игрока нет
-                boardDiv.style.display = 'none'; // Скрыть доску
+                document.getElementById('startGameBtn').style.display = 'none';
+                boardDiv.style.display = 'none';
             } else if (!game.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
-                boardDiv.style.display = 'none'; // Скрыть доску до начала
-                // Показать кнопку "Начать игру" только второму игроку, если игра не началась и второй игрок присоединился
+                boardDiv.style.display = 'none';
                 if (!isCreator) {
-                    console.log("Показываем кнопку 'Начать игру' второму игроку.");
                     document.getElementById('startGameBtn').style.display = 'block';
                 } else {
-                    console.log("Скрываем кнопку 'Начать игру' от создателя.");
                     document.getElementById('startGameBtn').style.display = 'none';
                 }
-            } else { // Игра началась (game.game_started === true)
-                statusDiv.textContent = "Игра началась!"; // Обновляем статус
-                document.getElementById('startGameBtn').style.display = 'none'; // Скрыть кнопку старта
-                boardDiv.style.display = 'grid'; // Показать доску
-                // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-                // Убедимся, что game.board - это массив массивов
+            } else {
+                statusDiv.textContent = "Игра началась!";
+                document.getElementById('startGameBtn').style.display = 'none';
+                boardDiv.style.display = 'grid';
+
+                // Доска
                 let boardToRender = game.board;
                 if (typeof game.board === 'string') {
                     try {
                         boardToRender = JSON.parse(game.board);
-                        console.log("Доска была строкой, распарсена в:", boardToRender);
                     } catch (e) {
-                        console.error("Ошибка парсинга доски из строки:", e, "Исходная строка:", game.board);
-                        statusDiv.textContent = "Ошибка: повреждённые данные доски.";
-                        return; // Прерываем отрисовку
+                        console.error("Ошибка парсинга доски:", e);
+                        statusDiv.textContent = "Ошибка: неверный формат доски.";
+                        return;
                     }
                 }
-                if (!Array.isArray(boardToRender) || boardToRender.length !== 3 || !boardToRender.every(row => Array.isArray(row) && row.length === 3)) {
-                     console.error("Доска имеет неверный формат:", boardToRender);
-                     statusDiv.textContent = "Ошибка: неверный формат доски.";
-                     return; // Прерываем отрисовку
+                if (!Array.isArray(boardToRender) || boardToRender.length !== 3 || !boardToRender.every(r => Array.isArray(r) && r.length === 3)) {
+                    console.error("Доска имеет неверный формат:", boardToRender);
+                    statusDiv.textContent = "Ошибка: неверный формат доски.";
+                    return;
                 }
-                // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-                // Очищаем и перерисовываем доску
+
+                // Очищаем и отрисовываем доску
                 boardDiv.innerHTML = '';
                 for (let i = 0; i < 3; i++) {
                     for (let j = 0; j < 3; j++) {
                         const cell = document.createElement('div');
                         cell.className = 'cell';
-                        const val = boardToRender[i][j]; // Используем boardToRender
+                        const val = boardToRender[i][j];
                         if (val) {
-                            // Проверяем, что val - это 'X' или 'O'
                             if (val === 'X' || val === 'O') {
                                 cell.textContent = val;
                                 cell.classList.add(val.toLowerCase());
-                                // Всегда проверяем на победителя для подсветки
-                                // Проверяем isGameFinished, чтобы подсветка работала и при завершении
-                                if (isGameFinished && game.winner && val === game.winner) { // Используем isGameFinished
-                                    cell.classList.add('winner');
-                                }
+                                // Подсветка победителя
+                                const isWinnerCell = game.winner && val === game.winner;
+                                if (isWinnerCell) cell.classList.add('winner');
                             } else {
-                                console.warn(`Некорректное значение в ячейке [${i}][${j}]: ${val}`);
-                                // Оставляем ячейку пустой или ставим пробел, если значение не 'X' и не 'O'
                                 cell.textContent = '';
                             }
                         }
-                        // Проверяем, можно ли сделать ход
-                        if (game.game_started && !isGameFinished && game.current_turn == myId && !val) { // Используем isGameFinished
+                        if (game.game_started && !isFinished && game.current_turn == myId && !val) {
                             cell.onclick = () => makeMove(i, j);
                         }
                         boardDiv.appendChild(cell);
                     }
                 }
-                // Обновляем статус хода, если игра не закончена
-                if (!isGameFinished) { // Используем isGameFinished
+
+                if (!isFinished) {
                     if (game.current_turn == myId) {
                         statusDiv.textContent = "Ваш ход!";
                     } else {
                         statusDiv.textContent = "Ход соперника...";
                     }
-                } else { // Игра завершена (isGameFinished === true)
-                    console.log("Игра завершена, winner:", game.winner, "isCreator:", isCreator);
-                    // Показываем кнопки "Новая игра" и "Закрыть игру" после завершения
-                    if (isCreator) { // Только создатель может перезапустить
-                         console.log("Отображаем кнопки 'Новая игра' и 'Закрыть игру' создателю.");
-                         restartGameBtn.style.display = 'inline-block';
-                         closeGameBtn.style.display = 'inline-block';
-                    } else {
-                         // Второй игрок видит результат, но не может начать новую
-                         console.log("Скрываем кнопки 'Новая игра' и 'Закрыть игру' от второго игрока.");
-                         restartGameBtn.style.display = 'none';
-                         closeGameBtn.style.display = 'none';
-                    }
+                } else {
+                    // Окончание: показать модальное окно и кнопки для создателя
+                    const isEndCreator = isCreator;
+                    showEndModal(isEndCreator, game);
                 }
             }
 
-            // Показываем чат, если второй игрок присоединился
+            // Чат
             if (game.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
-                // Если чатовый WebSocket не подключен, пытаемся подключить (например, после присоединения)
                 if (!chatWs || chatWs.readyState === WebSocket.CLOSED) {
-                     connectChatWs(gameId);
+                     connectChatWs gameId;
                 }
             } else {
-                // Если второго игрока нет, скрываем чат
                 document.getElementById('chatBox').style.display = 'none';
             }
         }
 
+        function showEndModal(isCreator, game) {
+            if (endModalShown) return;
+            // Определяем текст победителя
+            let endText = "";
+            if (game.winner === "draw") {
+                endText = "Игра окончена: ничья";
+            } else {
+                const winnerName = (game.winner === "X") ? game.creator_name : (game.opponent_name || "Игрок");
+                endText = `Победил(а): ${winnerName}`;
+            }
+            endWinnerText.textContent = endText;
+
+            // Кнопки: у создателя есть все варианты
+            if (isCreator) {
+                endGameBtn.style.display = 'inline-block';
+                restartGameModalBtn.style.display = 'inline-block';
+            } else {
+                endGameBtn.style.display = 'none';
+                restartGameModalBtn.style.display = 'none';
+            }
+            closeEndModalBtn.textContent = "Закрыть";
+
+            endModal.style.display = 'flex';
+            endModalShown = true;
+
+            // Привязка кнопок (одиноразовая привязка безопасна, можно привязывать повторно при повторном показе)
+            endGameBtn.onclick = endGameFromModal;
+            restartGameModalBtn.onclick = () => {
+                // Повторная игра через сервер
+                restartGame();
+            };
+            closeEndModalBtn.onclick = () => {
+                hideEndModal();
+            };
+        }
+
+        function hideEndModal() {
+            endModal.style.display = 'none';
+            endModalShown = false;
+            // Очистить кнопки
+            endGameBtn.style.display = 'none';
+            restartGameModalBtn.style.display = 'none';
+        }
+
+        // Вспомогательные функции
         copyLinkBtn.onclick = () => {
             const linkEl = inviteLinkDiv.querySelector('a');
             if (!linkEl) return;
@@ -504,15 +591,16 @@
         };
 
         startGameBtn.onclick = startGame;
+        // restartGameBtn теперь обслуживает не окно окончания, а повторную игру (серверный restart)
         restartGameBtn.onclick = restartGame;
         closeGameBtn.onclick = () => {
             // Просто закрываем WebApp
             Telegram.WebApp.close();
         };
 
+        // Сообщение чата
         sendBtn.onclick = () => {
             const text = chatInput.value.trim();
-            // Проверяем, что чатовый WebSocket подключен и открыт
             if (text && chatWs && chatWs.readyState === WebSocket.OPEN) {
                 try {
                     chatWs.send(JSON.stringify({ initData: Telegram.initData, text }));
@@ -522,10 +610,7 @@
                     console.error(`Ошибка отправки сообщения в WebSocket чата: ${e.message}`);
                 }
             } else {
-                 // Если соединение не установлено или закрыто, показываем сообщение
                  Telegram.showPopup({ title: "Ошибка", message: "Соединение с чатом не установлено." });
-                 console.error("Попытка отправки сообщения в чат, но WebSocket не открыт. ReadyState:", chatWs ? chatWs.readyState : 'undefined');
-                 // Пытаемся переподключиться
                  if (gameId) {
                       connectChatWs(gameId);
                  }
@@ -534,8 +619,9 @@
 
         chatInput.onkeypress = (e) => { if (e.key === 'Enter') sendBtn.click(); };
 
+        // Привязки кнопок в DOMContentLoaded
         document.addEventListener('DOMContentLoaded', async () => {
-            console.log("DOMContentLoaded с initDataUnsafe:", Telegram.initDataUnsafe); // Логирование
+            console.log("DOMContentLoaded с initDataUnsafe:", Telegram.initDataUnsafe);
             await loadStats();
             if (startParam && typeof startParam === 'string' && startParam.length === 8) {
                 gameId = startParam;
