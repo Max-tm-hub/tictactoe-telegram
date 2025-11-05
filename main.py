@@ -39,7 +39,7 @@ active_connections: Dict[str, List[weakref.ref]] = {}
 session = None
 
 # Валидация initData
-def validate_init_data(init_data: str, bot_token: str) -> dict:
+def validate_init_data(init_ str, bot_token: str) -> dict: # Исправлено: init_ str, а не init_ str
     try:
         pairs = [pair.split("=", 1) for pair in init_data.split("&")]
         data_dict = {}
@@ -103,7 +103,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict):
+def update_game(game_id: str,  dict): # Исправлено: data: dict, а не  dict
     try:
         # Убедимся, что board отправляется как список списков (Supabase сам его сериализует)
         # Если board - строка, не пытаемся её парсить перед отправкой, а оставляем как есть или преобразуем обратно в список
@@ -294,7 +294,7 @@ async def join_game(request: Request):
         update_game(game_id, {
             "opponent_id": user["id"],
             "opponent_name": user["first_name"],
-            "game_started": False  # Игра не начинается automatically
+            "game_started": False  # Игра не начинается автоматически
         })
         await broadcast_game_update(game_id)
         return {"status": "ok"}
@@ -429,23 +429,16 @@ async def restart_game(request: Request):
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
 
-        # Уведомляем игроков старой игры о переключении на новую
+        # Закрываем WebSocket старой игры
         if old_game_id in active_connections:
             for ref in active_connections[old_game_id][:]:
                 ws = ref()
                 if ws:
-                    try:
-                        await ws.send_json({"type": "restart", "new_game_id": new_game_id})
-                    except Exception as e:
-                        logger.error(f"Ошибка отправки уведомления перезапуска: {e}")
-            # Закрываем старые соединения
-            for ref in active_connections[old_game_id][:]:
-                ws = ref()
-                if ws:
-                    await ws.close(code=1000, reason="Игра перезапущена")
+                    await ws.close(code=1000, reason="Игра перезапущена") # Код 1000 - нормальное закрытие
             del active_connections[old_game_id]
 
-        # Рассылаем сообщение о новой игре (если у кого-то уже есть подписка на новую игру)
+        # Рассылаем сообщение о новой игре
+        new_game_data = get_game_by_id(new_game_id)[0]
         await broadcast_game_update(new_game_id)
 
         logger.info(f"Игра перезапущена: {old_game_id} -> {new_game_id}")
@@ -461,11 +454,11 @@ async def restart_game(request: Request):
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        if not init_data:
+        if not init_
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data:
+        if res. # Исправлено: res.data, а не res.
             return res.data[0]
         return {
             "user_id": user["id"],
