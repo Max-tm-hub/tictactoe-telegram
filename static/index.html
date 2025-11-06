@@ -462,14 +462,20 @@
                 }
                 hideEndModal();
                 console.log("Запрос на завершение игры отправлен.");
-                Telegram.WebApp.close(); // --- Закрываем приложение ---
+                // Закрывает WebApp и открывает чат с ботом
+                Telegram.WebApp.close();
+                console.log("Telegram.WebApp.close() вызван из модального окна.");
+                const botUsername = 'Alex_tictactoeBot';
+                const botLink = `https://t.me/${botUsername}`;
+                console.log("Попытка открыть чат с ботом из модального окна:", botLink);
+                Telegram.WebApp.openTelegramLink(botLink);
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: `Не удалось завершить игру: ${e.message}` });
                 console.error(`Ошибка завершения игры: ${e.message}`);
             }
         }
 
-        // --- ИСПРАВЛЕНО: closeGameBtn теперь вызывает endGameFromModal ---
+        // --- ИСПРАВЛЕНО: closeGameBtn теперь вызывает closeGame ---
         async function closeGame() {
             console.log("closeGame вызвана. gameId:", gameId);
             try {
@@ -490,7 +496,16 @@
                 console.warn("Предупреждение: ошибка при попытке завершить игру перед закрытием:", e.message);
                 // Даже если произошла ошибка, всё равно закрываем приложение
             } finally {
-                Telegram.WebApp.close(); // --- Закрываем приложение ---
+                // Закрывает WebApp
+                Telegram.WebApp.close();
+                console.log("Telegram.WebApp.close() вызван.");
+
+                // --- НОВОЕ: Открывает чат с ботом ---
+                const botUsername = 'Alex_tictactoeBot'; // Убедитесь, что имя пользователя верно
+                const botLink = `https://t.me/${botUsername}`;
+                console.log("Попытка открыть чат с ботом:", botLink);
+                Telegram.WebApp.openTelegramLink(botLink);
+                // ------------------------------------
             }
         }
 
@@ -748,7 +763,7 @@
             await loadStats();
 
             // Привязка кнопок модального окна один раз
-            endGameBtn.onclick = endGameFromModal; // Теперь закрывает приложение
+            endGameBtn.onclick = endGameFromModal; // Теперь закрывает WebApp и открывает чат
             restartGameModalBtn.onclick = () => {
                 restartGame();
                 hideEndModal();
