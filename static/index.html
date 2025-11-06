@@ -51,10 +51,12 @@
             margin: 10px 0;
             color: #555;
         }
-        #inviteLink { /* Ссылка будет скрыта */
-            display: none;
+        #inviteLink { /* Отображение ссылки */
+            margin: 10px 0;
+            word-break: break-all;
+            font-size: 14px;
         }
-        #inviteBtn { /* Новая кнопка "Пригласить в игру" */
+        #copyLinkBtn { /* Кнопка копирования */
             background-color: #4caf50;
             color: white;
             border: none;
@@ -149,8 +151,8 @@
     <div id="stats">🏆 0 побед | 💀 0 поражений | 🤝 0 ничьих</div>
     <div id="status" class="status">Загрузка...</div>
     <div id="board" class="board"></div>
-    <div id="inviteLink"></div> <!-- Скрытая область для ссылки -->
-    <button id="inviteBtn" style="display: none;">Пригласить в игру</button> <!-- Новая кнопка -->
+    <div id="inviteLink"></div> <!-- Отображение ссылки -->
+    <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button> <!-- Кнопка копирования -->
     <button id="startGameBtn" style="display: none;">Начать игру</button>
     <button id="restartGameBtn" style="display: none;">Новая игра</button>
     <!-- #closeGameBtn убран -->
@@ -182,14 +184,14 @@
         console.log("Telegram WebApp инициализирован.");
 
         const BACKEND = "https://tictactoe-telegram.onrender.com";
-        let gameId = null; // Используем эту переменную вместо currentGameId
+        let gameId = null;
         let gameWs = null;
         let chatWs = null;
         const statusDiv = document.getElementById('status');
         const boardDiv = document.getElementById('board');
         const statsDiv = document.getElementById('stats');
         const inviteLinkDiv = document.getElementById('inviteLink');
-        const inviteBtn = document.getElementById('inviteBtn'); // Новая кнопка
+        const copyLinkBtn = document.getElementById('copyLinkBtn'); // Кнопка копирования
         const startGameBtn = document.getElementById('startGameBtn');
         const restartGameBtn = document.getElementById('restartGameBtn');
         // const closeGameBtn = document.getElementById('closeGameBtn'); // Убрана
@@ -359,32 +361,30 @@
                 }
                 const data = await res.json();
                 gameId = data.game_id; // Сохраняем ID игры
-                // --- ИЗМЕНЕНО: Сохраняем ссылку, но не отображаем кнопку копирования ---
-                const gameUrl = data.invite_link; // Например, "https://t.me/Alex_tictactoeBot?start=abc123"
+                const gameUrl = data.invite_link; // Получаем ссылку
                 console.log("Получена gameUrl:", gameUrl);
                 if (!gameUrl) {
                     throw new Error("Ссылка для приглашения не получена от сервера.");
                 }
-                inviteLinkDiv.innerHTML = `<a href="${gameUrl}" target="_blank">${gameUrl}</a>`; // Скрыто
-                // Кнопка "Пригласить в игру" отображается сразу при создании
-                inviteBtn.style.display = 'block';
-                // --- НОВОЕ: Привязка обработчика к новой кнопке ---
-                inviteBtn.onclick = () => {
-                     console.log("Кнопка 'Пригласить в игру' нажата.");
-                     console.log("Текущий gameId:", gameId); // Используем gameId из области видимости
-                     if (!gameId) {
-                         console.error("Game ID is not set");
-                         Telegram.showPopup({ title: "Ошибка", message: "ID игры не установлен." });
-                         return;
+
+                // --- НОВОЕ: Отображаем ссылку и кнопку копирования ---
+                inviteLinkDiv.innerHTML = `<a href="${gameUrl}" target="_blank">Ссылка для приглашения:</a> ${gameUrl}`;
+                inviteLinkDiv.style.display = 'block'; // Показываем блок со ссылкой
+                copyLinkBtn.style.display = 'block'; // Показываем кнопку копирования
+                copyLinkBtn.onclick = () => {
+                     if (gameUrl) {
+                         navigator.clipboard.writeText(gameUrl).then(() => {
+                             Telegram.showAlert("Ссылка скопирована!");
+                         }).catch(err => {
+                             console.error('Ошибка копирования: ', err);
+                             Telegram.showAlert("Не удалось скопировать ссылку.");
+                         });
+                     } else {
+                         Telegram.showAlert("Ссылка недоступна.");
                      }
-                     const dataToSend = { action: "invite", gameId: gameId }; // Отправляем gameId
-                     console.log("Отправка данных через sendData:", dataToSend);
-                     // sendData отправляет данные в Telegram Bot API
-                     Telegram.WebApp.sendData(JSON.stringify(dataToSend));
-                     // Показываем пользователю, что действие выполнено
-                     Telegram.showAlert("Данные приглашения отправлены в Telegram.");
                 };
                 // ---------------------------
+
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
                 boardDiv.style.display = 'none';
@@ -478,10 +478,6 @@
                 // Закрывает WebApp
                 Telegram.WebApp.close();
                 console.log("Telegram.WebApp.close() вызван из модального окна.");
-                // Попытка открыть чат с ботом (опционально, как обсуждали)
-                // const botUsername = 'Alex_tictactoeBot';
-                // const botLink = `https://t.me/${botUsername}`;
-                // Telegram.WebApp.openTelegramLink(botLink);
             } catch (e) {
                 Telegram.showPopup({ title: "Ошибка", message: `Не удалось завершить игру: ${e.message}` });
                 console.error(`Ошибка завершения игры: ${e.message}`);
@@ -583,17 +579,15 @@
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!gameData.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
-                startGameBtn.style.display = 'inline-block'; // Показываем кнопку начала игры
+                startGameBtn.style.display = 'none'; // Кнопка "Начать" неактивна до присоединения
                 boardDiv.style.display = 'none';
-                // inviteLinkDiv.style.display = 'block'; // Скрыто
-                // copyLinkBtn.style.display = 'block'; // Убрана
-                inviteBtn.style.display = 'block'; // Показываем кнопку приглашения
+                inviteLinkDiv.style.display = 'block'; // Показываем ссылку
+                copyLinkBtn.style.display = 'block'; // Показываем кнопку копирования
             } else if (!gameData.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
                 boardDiv.style.display = 'none';
-                // inviteLinkDiv.style.display = 'none'; // Скрыто
-                // copyLinkBtn.style.display = 'none'; // Убрана
-                inviteBtn.style.display = 'none'; // Скрываем кнопку приглашения
+                inviteLinkDiv.style.display = 'none'; // --- СКРЫВАЕМ ССЫЛКУ ---
+                copyLinkBtn.style.display = 'none'; // --- СКРЫВАЕМ КНОПКУ КОПИРОВАНИЯ ---
                 if (!isCreator) {
                     startGameBtn.style.display = 'inline-block';
                 } else {
@@ -603,9 +597,8 @@
                 statusDiv.textContent = "Игра началась!";
                 startGameBtn.style.display = 'none';
                 boardDiv.style.display = 'grid';
-                // inviteLinkDiv.style.display = 'none'; // Скрыто
-                // copyLinkBtn.style.display = 'none'; // Убрана
-                inviteBtn.style.display = 'none'; // Скрываем кнопку приглашения
+                inviteLinkDiv.style.display = 'none'; // Скрыто
+                copyLinkBtn.style.display = 'none'; // Скрыто
 
                 boardDiv.innerHTML = '';
                 for (let i = 0; i < 3; i++) {
@@ -690,8 +683,7 @@
             restartGameModalBtn.style.display = 'none';
         }
 
-        // copyLinkBtn.onclick = () => { ... }; // Убрана
-
+        // copyLinkBtn.onclick = () => { ... }; // Теперь определена в createGame
         startGameBtn.onclick = startGame;
         restartGameBtn.onclick = restartGame;
         // closeGameBtn.onclick = closeGame; // Убрана
