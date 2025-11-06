@@ -104,7 +104,7 @@ def is_game_id_unique(game_id: str) -> bool:
 def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
-        if result.data:
+        if result.
             game_data = result.data[0]
             board = game_data.get("board")
             if isinstance(board, str):
@@ -125,7 +125,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str, data: dict):
+def update_game(game_id: str,  dict):
     try:
         board = data.get("board")
         if isinstance(board, str):
@@ -149,7 +149,7 @@ def update_stats(user_id: str, username: str, field: str):
         if not user_id:
             return
         res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-        if res.data:
+        if res.
             current = res.data[0][field]
             supabase.table("stats").update({field: current + 1}).eq("user_id", user_id).execute()
         else:
@@ -246,7 +246,7 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
     except Exception as e:
         logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
     finally:
-        if websocket in chat_user_data:
+        if websocket in chat_user_
             del chat_user_data[websocket]
 
 async def broadcast_game_update(game_id: str):
@@ -314,6 +314,23 @@ async def join_game(request: Request):
             "game_started": False
         })
         await broadcast_game_update(game_id)
+
+        # --- НОВОЕ: Уведомление создателя ---
+        try:
+            # Получаем бота из состояния приложения
+            bot = request.app.state.bot
+            # Получаем user_id создателя из обновлённой игры
+            updated_game_list = get_game_by_id(game_id)
+            if updated_game_list:
+                updated_game = updated_game_list[0]
+                creator_user_id = updated_game.get("creator_id")
+                # Отправляем сообщение создателю
+                await bot.send_message(creator_user_id, f"Игрок {user['first_name']} присоединился к вашей игре! Теперь можно начать.")
+                logger.info(f"Создателю игры {game_id} отправлено уведомление о присоединении.")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомления создателю игры {game_id}: {e}")
+        # ------------------------------
+
         return {"status": "ok"}
     except HTTPException:
         raise
@@ -493,11 +510,11 @@ async def end_game(request: Request):
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        if not init_data:
+        if not init_
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data:
+        if res.
             return res.data[0]
         return {
             "user_id": user["id"],
@@ -520,50 +537,6 @@ async def telegram_webhook(request: Request):
 
         update_data = await request.json()
         update = Update(**update_data)
-
-        # --- НОВОЕ: Обработка web_app_data ---
-        if update.message and update.message.web_app_data:
-            user_id = update.message.from_user.id
-            web_app_data_json_str = update.message.web_app_data.data
-
-            try:
-                web_app_data = json.loads(web_app_data_json_str)
-                action = web_app_data.get("action")
-                game_id = web_app_data.get("gameId")
-
-                if action == "invite" and game_id:
-                    logger.info(f"Получен запрос на приглашение для game_id: {game_id} от user_id: {user_id}")
-
-                    # Проверяем, существует ли игра
-                    game_list = get_game_by_id(game_id)
-                    if not game_list:
-                        await bot.send_message(user_id, "❌ Игра не найдена.")
-                        return {"ok": True}
-
-                    # Формируем ссылку на игру
-                    game_url = f"https://t.me/Alex_tictactoeBot?start={game_id}"
-
-                    # Текст приглашения
-                    invite_text = f"Давай сыграем в крестики-нолики!\n{game_url}"
-
-                    # Кнопка с ссылкой
-                    kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Присоединиться к игре", url=game_url)]
-                    ])
-
-                    # Отправляем пользователю сообщение с приглашением
-                    await bot.send_message(user_id, invite_text, reply_markup=kb)
-
-                else:
-                    logger.warning(f"Получены неизвестные данные из WebApp: {web_app_data}")
-                    await bot.send_message(user_id, "Неизвестный запрос из WebApp.")
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Ошибка парсинга web_app_data JSON: {e}")
-                await bot.send_message(user_id, "Ошибка обработки данных из WebApp.")
-            except Exception as e:
-                logger.error(f"Ошибка при обработке web_app_data: {e}")
-                await bot.send_message(user_id, "Произошла ошибка при обработке запроса.")
 
         # --- СУЩЕСТВУЮЩАЯ ЛОГИКА ОБРАБОТКИ КОМАНД ---
         if update.message and update.message.text:
