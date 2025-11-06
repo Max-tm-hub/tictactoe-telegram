@@ -160,10 +160,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS - ИСПРАВЛЕНО: убраны пробелы
+# CORS - ИСПРАВЛЕНО: убраны пробелы из URL
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://web.telegram.org", "https://t.me", "http://localhost:3000", WEBHOOK_URL],
+    allow_origins=["https://web.telegram.org", "https://t.me", "http://localhost:3000", WEBHOOK_URL], # Убраны пробелы
     allow_methods=["*"],
     allow_headers=["*"]
 )
@@ -185,14 +185,12 @@ async def game_websocket(websocket: WebSocket, game_id: str):
             await websocket.receive_text()
     except WebSocketDisconnect:
         logger.info(f"WebSocket отключен для игры {game_id}")
-        # --- ИСПРАВЛЕНО: безопасный доступ к active_connections ---
         if game_id in active_connections:
             active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
             if not active_connections[game_id]:
                 del active_connections[game_id]
     except Exception as e:
         logger.error(f"Ошибка WebSocket для игры {game_id}: {e}")
-        # --- ИСПРАВЛЕНО: безопасный доступ к active_connections ---
         if game_id in active_connections:
             active_connections[game_id] = [ref for ref in active_connections[game_id] if ref() is not None]
             if not active_connections[game_id]:
@@ -203,25 +201,20 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
     await websocket.accept()
     user = None
     try:
-        # --- ИСПРАВЛЕНО: валидация initData при подключении, а не при каждом сообщении ---
-        # Предполагаем, что initData передаётся как часть URL: ws://.../ws/chat/{game_id}?initData=...
         query_params = urllib.parse.parse_qs(websocket.scope.get("query_string", b"").decode())
         init_data_str = query_params.get("initData", [None])[0]
         if not init_data_str:
             raise HTTPException(status_code=403, detail="initData отсутствует в URL WebSocket-а")
         user = validate_init_data(init_data_str, BOT_TOKEN)
-        # Сохраняем данные пользователя для этого WebSocket-а
         chat_user_data[websocket] = user
 
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
-            # --- ИСПРАВЛЕНО: больше не передаём initData ---
             text = msg.get("text", "")
             if not text:
                 continue
 
-            # Используем сохранённые данные пользователя
             user = chat_user_data[websocket]
 
             supabase.table("messages").insert({
@@ -236,7 +229,6 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
                 "text": text[:100],
                 "timestamp": time.time()
             }
-            # Отправляем сообщение всем активным соединениям игры
             if game_id in active_connections:
                 for ref in active_connections[game_id][:]:
                     ws = ref()
@@ -250,7 +242,6 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
     except Exception as e:
         logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
     finally:
-        # Удаляем данные пользователя при отключении
         if websocket in chat_user_data:
             del chat_user_data[websocket]
 
@@ -293,7 +284,8 @@ async def create_game(request: Request):
             "winner": None,
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }).execute()
-        invite_link = f"https://t.me/Alex_tictactoeBot?start={game_id}" # Исправлено на https
+        # Исправлено: убраны пробелы из URL бота
+        invite_link = f"https://t.me/Alex_tictactoeBot?start={game_id}"
         logger.info(f"Игра создана: {game_id}")
         return {"game_id": game_id, "invite_link": invite_link}
     except Exception as e:
@@ -474,26 +466,7 @@ async def restart_game(request: Request):
         logger.error(f"Ошибка перезапуска игры: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
-@app.post("/api/end-game")
-async def end_game(request: Request):
-    try:
-        data = await request.json()
-        user = validate_init_data(data["initData"], BOT_TOKEN)
-        game_id = data["game_id"]
-        game_list = get_game_by_id(game_id)
-        if not game_list:
-            raise HTTPException(status_code=404, detail="Игра не найдена")
-        game = game_list[0]
-        if str(user["id"]) != str(game["creator_id"]):
-            raise HTTPException(status_code=403, detail="Только создатель игры может завершить её")
-        update_game(game_id, {"game_started": False, "winner": game.get("winner"), "game_closed": True})
-        await broadcast_game_update(game_id)
-        return {"status": "ok"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка завершения игры: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+# Удалён эндпоинт /api/end-game
 
 @app.get("/api/stats")
 async def get_stats(request: Request):
@@ -521,7 +494,6 @@ async def get_stats(request: Request):
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
-        # Используем bot из глобального состояния через lifespan
         bot = request.app.state.bot if hasattr(request.app.state, 'bot') else Bot(token=BOT_TOKEN)
         update_data = await request.json()
         update = Update(**update_data)
