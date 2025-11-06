@@ -104,7 +104,7 @@ def is_game_id_unique(game_id: str) -> bool:
 def get_game_by_id(game_id: str):
     try:
         result = supabase.table("games").select("*").eq("id", game_id).execute()
-        if result.data
+        if result.data:
             game_data = result.data[0]
             board = game_data.get("board")
             if isinstance(board, str):
