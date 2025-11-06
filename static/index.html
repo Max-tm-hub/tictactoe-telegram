@@ -54,9 +54,6 @@
         #inviteLink { /* Ссылка будет скрыта */
             display: none;
         }
-        #inviteLink a { /* Но если нужно, можно стилизовать текст ссылки */
-            word-break: break-all;
-        }
         #inviteBtn { /* Новая кнопка "Пригласить в игру" */
             background-color: #4caf50;
             color: white;
@@ -185,7 +182,7 @@
         console.log("Telegram WebApp инициализирован.");
 
         const BACKEND = "https://tictactoe-telegram.onrender.com";
-        let gameId = null;
+        let gameId = null; // Используем эту переменную вместо currentGameId
         let gameWs = null;
         let chatWs = null;
         const statusDiv = document.getElementById('status');
@@ -244,7 +241,7 @@
                     } else if (msg.type === "restart") {
                         console.log("Получено уведомление о перезапуске игры. Новый ID:", msg.new_game_id);
                         const newGameId = msg.new_game_id;
-                        gameId = newGameId;
+                        gameId = newGameId; // Обновляем gameId
                         boardDiv.style.pointerEvents = 'none';
                         boardDiv.style.opacity = '0.5';
                         statusDiv.textContent = "Переключение на новую игру...";
@@ -361,19 +358,31 @@
                     throw new Error(`HTTP error! status: ${res.status}, message: ${errorText}`);
                 }
                 const data = await res.json();
-                gameId = data.game_id;
+                gameId = data.game_id; // Сохраняем ID игры
                 // --- ИЗМЕНЕНО: Сохраняем ссылку, но не отображаем кнопку копирования ---
                 const gameUrl = data.invite_link; // Например, "https://t.me/Alex_tictactoeBot?start=abc123"
+                console.log("Получена gameUrl:", gameUrl);
+                if (!gameUrl) {
+                    throw new Error("Ссылка для приглашения не получена от сервера.");
+                }
                 inviteLinkDiv.innerHTML = `<a href="${gameUrl}" target="_blank">${gameUrl}</a>`; // Скрыто
                 // Кнопка "Пригласить в игру" отображается сразу при создании
                 inviteBtn.style.display = 'block';
                 // --- НОВОЕ: Привязка обработчика к новой кнопке ---
                 inviteBtn.onclick = () => {
-                     const text = "Давай сыграем в крестики-нолики!";
-                     // Формируем ссылку для шаринга
-                     const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(gameUrl)}&text=${encodeURIComponent(text)}`;
-                     console.log("Попытка открыть окно шаринга:", shareUrl);
-                     Telegram.WebApp.openTelegramLink(shareUrl);
+                     console.log("Кнопка 'Пригласить в игру' нажата.");
+                     console.log("Текущий gameId:", gameId); // Используем gameId из области видимости
+                     if (!gameId) {
+                         console.error("Game ID is not set");
+                         Telegram.showPopup({ title: "Ошибка", message: "ID игры не установлен." });
+                         return;
+                     }
+                     const dataToSend = { action: "invite", gameId: gameId }; // Отправляем gameId
+                     console.log("Отправка данных через sendData:", dataToSend);
+                     // sendData отправляет данные в Telegram Bot API
+                     Telegram.WebApp.sendData(JSON.stringify(dataToSend));
+                     // Показываем пользователю, что действие выполнено
+                     Telegram.showAlert("Данные приглашения отправлены в Telegram.");
                 };
                 // ---------------------------
                 connectGameWs(gameId);
@@ -400,7 +409,7 @@
                     const errorText = await res.text();
                     throw new Error(`HTTP error! status: ${res.status}, message: ${errorText}`);
                 }
-                gameId = gameIdToJoin;
+                gameId = gameIdToJoin; // Обновляем gameId
                 connectGameWs(gameId);
                 connectChatWs(gameId);
                 statusDiv.textContent = "Вы присоединились к игре!";
