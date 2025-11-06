@@ -216,16 +216,16 @@
         const startParamFromURL = urlParams.get('startapp');
         const startParam = initDataUnsafe?.start_param || startParamFromURL;
 
-        // --- ИСПРАВЛЕНО: Функция получения актуального gameId ---
-        // Используем глобальную переменную, но синхронизируем её правильно.
-
         function connectGameWs(gameIdToConnect) {
             console.log("Попытка подключения к WebSocket игры:", gameIdToConnect);
             const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
             const wsFullUrl = `${wsUrl}/ws/${gameIdToConnect}`;
-            console.log("WebSocket URL:", wsFullUrl);
+            console.log("WebSocket URL игры:", wsFullUrl);
 
-            gameWs = new WebSocket(wsFullUrl);
+            // --- ОБНОВЛЕНИЕ: Обновляем gameWs до установки обработчиков ---
+            const newGameWs = new WebSocket(wsFullUrl);
+            gameWs = newGameWs; // Обновляем глобальную переменную СРАЗУ
+            console.log("gameWs обновлён на новое соединение для игры", gameIdToConnect);
 
             gameWs.onopen = () => {
                 console.log("WebSocket соединение установлено для игры", gameIdToConnect);
@@ -234,9 +234,13 @@
             gameWs.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
-                    console.log("Получено сообщение от WebSocket игры:", msg);
+                    console.log("Получено сообщение от WebSocket игры (ID:", gameIdToConnect, "):", msg);
                     if (msg.type === "game") {
                         renderGame(msg);
+                    } else if (msg.type === "chat") { // --- ЛОГИКА ПОЛУЧЕНИЯ ЧАТА ---
+                        console.log("Получено сообщение чата:", msg);
+                        chatMessages.innerHTML += `<div><b>${msg.username || 'Анон'}:</b> ${msg.text}</div>`;
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
                     } else if (msg.type === "restart") {
                         console.log("Получено уведомление о перезапуске игры. Новый ID:", msg.new_game_id);
                         const newGameId = msg.new_game_id;
@@ -245,14 +249,16 @@
                         boardDiv.style.pointerEvents = 'none';
                         boardDiv.style.opacity = '0.5';
                         statusDiv.textContent = "Переключение на новую игру...";
+                        // Закрываем старые сокеты
                         if (gameWs) {
                             try { gameWs.close(); } catch(e) { console.error("Ошибка закрытия gameWs:", e); }
                         }
-                        if (chatWs) { // --- ИСПРАВЛЕНО: закрываем chatWs ---
+                        if (chatWs) {
                             try { chatWs.close(); } catch(e) { console.error("Ошибка закрытия chatWs:", e); }
                         }
-                        connectGameWs(newGameId);
-                        connectChatWs(newGameId);
+                        // Подключаемся к новым сокетам
+                        connectGameWs(newGameId); // Создаёт новое соединение и обновляет gameWs
+                        connectChatWs(newGameId); // Создаёт новое соединение и обновляет chatWs
                     } else if (msg.type === "error") {
                         console.error("Ошибка от WebSocket игры:", msg.message);
                         statusDiv.textContent = `Ошибка: ${msg.message}`;
@@ -264,10 +270,15 @@
 
             gameWs.onclose = (event) => {
                  if (event.code === 1000 && event.reason === "Игра перезапущена") {
-                     console.log("WebSocket игры закрыт сервером: игра перезапущена.");
+                     console.log("WebSocket игры закрыт сервером: игра перезапущена.", gameIdToConnect);
                  } else {
                       console.log("WebSocket игры отключен для игры", gameIdToConnect, "Код:", event.code, "Причина:", event.reason);
                       statusDiv.textContent = "Соединение с игрой потеряно.";
+                 }
+                 // Очищаем глобальную переменную при закрытии, если это текущий сокет
+                 if (gameWs === newGameWs) {
+                    gameWs = null;
+                    console.log("gameWs очищен после закрытия.");
                  }
             };
 
@@ -280,20 +291,16 @@
         function connectChatWs(gameIdToConnect) {
              console.log("Попытка подключения к WebSocket чата:", gameIdToConnect);
              const wsUrl = BACKEND.replace('https://', 'wss://').replace('http://', 'ws://');
-             // --- ИСПРАВЛЕНО: передаём актуальный initData и gameId в URL ---
              const wsFullUrl = `${wsUrl}/ws/chat/${gameIdToConnect}?initData=${encodeURIComponent(Telegram.initData)}`;
              console.log("WebSocket Chat URL:", wsFullUrl);
 
-             // --- ИСПРАВЛЕНО: закрываем предыдущий сокет, если он есть ---
-             if (chatWs && chatWs.readyState !== WebSocket.CLOSED) {
-                 chatWs.close();
-             }
-
-             chatWs = new WebSocket(wsFullUrl); // --- ИСПРАВЛЕНО: обновляем глобальную переменную ---
+             // --- ОБНОВЛЕНИЕ: Обновляем chatWs до установки обработчиков ---
+             const newChatWs = new WebSocket(wsFullUrl);
+             chatWs = newChatWs; // Обновляем глобальную переменную СРАЗУ
+             console.log("chatWs обновлён на новое соединение для чата", gameIdToConnect);
 
              chatWs.onopen = () => {
                   console.log("WebSocket соединение установлено для чата", gameIdToConnect);
-                  // --- ИСПРАВЛЕНО: обновляем состояние кнопки отправки ---
                   sendBtn.disabled = false;
                   sendBtn.style.backgroundColor = '#4caf50';
               };
@@ -301,11 +308,10 @@
              chatWs.onmessage = (event) => {
                  try {
                      const msg = JSON.parse(event.data);
-                     console.log("Получено сообщение от WebSocket чата:", msg);
-                     if (msg.type === "chat") {
-                          chatMessages.innerHTML += `<div><b>${msg.username || 'Анон'}:</b> ${msg.text}</div>`;
-                          chatMessages.scrollTop = chatMessages.scrollHeight;
-                     } else if (msg.type === "error") {
+                     console.log("Получено сообщение от WebSocket чата (ID:", gameIdToConnect, "):", msg);
+                     // Сообщения чата НЕ обрабатываются здесь, они приходят через gameWs
+                     // Этот обработчик нужен только для отладки или особых сообщений от чата
+                     if (msg.type === "error") {
                          console.error("Ошибка от WebSocket чата:", msg.message);
                          Telegram.showPopup({ title: "Ошибка чата", message: msg.message });
                      }
@@ -316,9 +322,13 @@
 
              chatWs.onclose = (event) => {
                   console.log("WebSocket чата отключен для игры", gameIdToConnect, "Код:", event.code, "Причина:", event.reason);
-                  // --- ИСПРАВЛЕНО: делаем кнопку чата неактивной при отключении ---
                   sendBtn.disabled = true;
                   sendBtn.style.backgroundColor = '#cccccc';
+                  // Очищаем глобальную переменную при закрытии, если это текущий сокет
+                  if (chatWs === newChatWs) {
+                    chatWs = null;
+                    console.log("chatWs очищен после закрытия.");
+                  }
              };
 
              chatWs.onerror = (error) => {
@@ -438,7 +448,6 @@
             }
         }
 
-        // --- ИСПРАВЛЕНО: endGameFromModal теперь закрывает приложение ---
         async function endGameFromModal() {
             try {
                 console.log("Отправка запроса на завершение игры:", gameId);
@@ -462,6 +471,7 @@
 
         // --- ИСПРАВЛЕНО: closeGameBtn теперь вызывает endGameFromModal ---
         async function closeGame() {
+            console.log("closeGame вызвана. gameId:", gameId);
             try {
                 console.log("Отправка запроса на завершение игры перед закрытием приложения:", gameId);
                 const res = await fetch(`${BACKEND}/api/end-game`, {
@@ -532,7 +542,7 @@
                 boardDiv.style.opacity = '1';
             }
 
-            console.log("Отрисовка игры с данными:", gameData);
+            console.log("Отрисовка игры с данными (ID:", gameData.id, "). Текущий gameId:", gameId);
             if (!Telegram.initDataUnsafe || !Telegram.initDataUnsafe.user) {
                 console.error("Telegram WebApp initDataUnsafe.user недоступен при отрисовке.");
                 statusDiv.textContent = "Ошибка: Не удалось получить данные пользователя.";
@@ -652,8 +662,6 @@
 
             if (gameData.opponent_id) {
                 document.getElementById('chatBox').style.display = 'block';
-                // Подключаемся к чату только при присоединении/создании, не здесь
-                // connectChatWs(gameId); // Это было здесь, но неэффективно
             } else {
                 document.getElementById('chatBox').style.display = 'none';
             }
@@ -711,11 +719,13 @@
 
         // --- ИСПРАВЛЕНО: sendBtn.onclick использует глобальный chatWs ---
         sendBtn.onclick = () => {
+            console.log("sendBtn clicked. chatWs readyState:", chatWs ? chatWs.readyState : "null", "gameId:", gameId);
             const text = chatInput.value.trim();
             // --- ИСПРАВЛЕНО: проверяем, что chatWs существует и открыт ---
             if (text && chatWs && chatWs.readyState === WebSocket.OPEN) {
                 try {
                     chatWs.send(JSON.stringify({ text })); // Только текст
+                    console.log("Сообщение отправлено в чат:", text);
                     chatInput.value = '';
                 } catch (e) {
                     Telegram.showPopup({ title: "Ошибка", message: "Не удалось отправить сообщение." });
@@ -723,6 +733,7 @@
                 }
             } else {
                  Telegram.showPopup({ title: "Ошибка", message: "Соединение с чатом не установлено." });
+                 console.log("Соединение с чатом не установлено. Попытка переподключения.");
                  // Попробовать переподключиться, если gameId установлен
                  if (gameId) {
                       connectChatWs(gameId); // Повторно подключаемся к чату новой игры
