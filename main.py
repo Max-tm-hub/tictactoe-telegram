@@ -485,7 +485,7 @@ async def get_stats(request: Request):
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.
+        if res.data:
             return res.data[0]
         return {
             "user_id": user["id"],
