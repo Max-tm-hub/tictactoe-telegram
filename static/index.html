@@ -530,7 +530,7 @@
             const myId = String(user.id);
             const isCreator = myId === String(gameData.creator_id);
 
-            // --- ИСПРАВЛЕНО: показываем кнопки ---
+            // --- ИСПРАВЛЕНО: показываем/скрываем кнопки ---
             restartGameBtn.style.display = isCreator ? 'inline-block' : 'none'; // --- ИСПРАВЛЕНО: скрываем для второго игрока ---
             closeGameBtn.style.display = 'inline-block';
 
