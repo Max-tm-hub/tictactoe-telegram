@@ -152,7 +152,7 @@
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
-    <button id="restartGameBtn" style="display: none;">Новая игра</button> <!-- Текст изменится при неактивности -->
+    <button id="restartGameBtn" style="display: none;">Новая игра</button>
     <button id="closeGameBtn" style="display: none;">Закрыть игру</button>
     <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
@@ -531,18 +531,15 @@
             const isCreator = myId === String(gameData.creator_id);
 
             // --- ИСПРАВЛЕНО: показываем кнопки ---
-            restartGameBtn.style.display = 'inline-block';
+            restartGameBtn.style.display = isCreator ? 'inline-block' : 'none'; // --- ИСПРАВЛЕНО: скрываем для второго игрока ---
             closeGameBtn.style.display = 'inline-block';
 
-            // --- ИСПРАВЛЕНО: делаем кнопку "Новая игра" активной/неактивной ---
+            // --- ИСПРАВЛЕНО: делаем кнопку "Новая игра" активной/неактивной (теперь только для создателя) ---
             if (isCreator) {
                 restartGameBtn.classList.remove('inactive');
                 restartGameBtn.disabled = false;
-                restartGameBtn.textContent = "Новая игра"; // Текст для создателя
             } else {
-                restartGameBtn.classList.add('inactive');
-                restartGameBtn.disabled = true;
-                restartGameBtn.textContent = "Недоступно"; // Текст для второго игрока
+                // Логика для второго игрока больше не нужна, так как кнопка скрыта
             }
 
             let boardToRender = gameData.board;
