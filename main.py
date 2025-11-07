@@ -122,7 +122,7 @@ def update_stats(user_id: str, username: str, field: str):
         if not user_id:
             return
         res = supabase.table("stats").select("*").eq("user_id", user_id).execute()
-        if res.data
+        if res.data:
             current = res.data[0][field]
             supabase.table("stats").update({field: current + 1}).eq("user_id", user_id).execute()
         else:
