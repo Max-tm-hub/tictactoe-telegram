@@ -361,7 +361,7 @@
                 const data = await res.json();
                 gameId = data.game_id;
                 inviteLinkDiv.innerHTML = `Ссылка для приглашения: <a href="${data.invite_link}" target="_blank">${data.invite_link}</a>`;
-                copyLinkBtn.style.display = 'block';
+                copyLinkBtn.style.display = 'block'; // Кнопка копирования ссылки видна создателю
                 connectGameWs(gameId);
                 statusDiv.textContent = "Игра создана! Ожидание второго игрока...";
                 boardDiv.style.display = 'none';
@@ -559,19 +559,20 @@
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!gameData.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
-                startGameBtn.style.display = 'none';
+                startGameBtn.style.display = 'none'; // Кнопка "Начать игру" не нужна создателю до присоединения
                 boardDiv.style.display = 'none';
                 inviteLinkDiv.style.display = 'block';
-                copyLinkBtn.style.display = 'block';
+                copyLinkBtn.style.display = 'block'; // Кнопка копирования ссылки видна создателю до присоединения
             } else if (!gameData.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
                 boardDiv.style.display = 'none';
-                inviteLinkDiv.style.display = 'none';
-                copyLinkBtn.style.display = 'none';
+                // --- ИСПРАВЛЕНО: логика отображения кнопок после присоединения второго игрока ---
+                inviteLinkDiv.style.display = 'none'; // Скрываем ссылку у обоих
+                copyLinkBtn.style.display = 'none';  // Скрываем кнопку копирования у обоих
                 if (!isCreator) {
-                    startGameBtn.style.display = 'inline-block';
+                    startGameBtn.style.display = 'inline-block'; // Показываем "Начать игру" второму игроку
                 } else {
-                    startGameBtn.style.display = 'none';
+                    startGameBtn.style.display = 'none'; // Скрываем "Начать игру" у создателя
                 }
             } else {
                 statusDiv.textContent = "Игра началась!";
