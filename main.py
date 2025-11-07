@@ -98,7 +98,7 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str,  dict):
+def update_game(game_id: str, data: dict):
     try:
         board = data.get("board")
         if isinstance(board, str):
@@ -145,7 +145,7 @@ def check_win(board: list, symbol: str) -> bool:
 # Глобальные переменные для WebSocket-соединений и бота
 active_connections: Dict[str, List[weakref.ref]] = {}
 # Для хранения данных пользователей, связанных с WebSocket-ами чата
-chat_user_ Dict[WebSocket, dict] = {}
+chat_user_data: Dict[WebSocket, dict] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -485,7 +485,7 @@ async def get_stats(request: Request):
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.
+        if res.data:
             return res.data[0]
         return {
             "user_id": user["id"],
