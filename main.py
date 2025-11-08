@@ -98,10 +98,10 @@ def get_game_by_id(game_id: str):
         logger.error(f"Ошибка получения игры: {e}")
         return None
 
-def update_game(game_id: str,  dict):
+def update_game(game_id: str, data: dict): # ИСПРАВЛЕНО: добавлен параметр data
     try:
         board = data.get("board")
-        if isinstance(board, str):
+        if board is not None and isinstance(board, str): # ИСПРАВЛЕНО: проверка на None
              try:
                  parsed_board = json.loads(board)
                  if isinstance(parsed_board, list) and len(parsed_board) == 3 and all(isinstance(row, list) and len(row) == 3 for row in parsed_board):
@@ -154,6 +154,8 @@ async def lifespan(app: FastAPI):
     bot = Bot(token=BOT_TOKEN)
     await bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     logger.info("Lifespan: Приложение запущено, вебхук установлен.")
+    # Сохраняем бота в состоянии приложения, чтобы использовать в вебхуке
+    app.state.bot = bot
     yield
     await bot.session.close()
     logger.info("Lifespan: Приложение завершено.")
@@ -251,6 +253,7 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
         logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
     finally:
         # Удаляем данные пользователя при отключении
+        # --- ИСПРАВЛЕНО: Полная строка для удаления данных пользователя ---
         if websocket in chat_user_data:
             del chat_user_data[websocket]
 
@@ -481,7 +484,7 @@ async def restart_game(request: Request):
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        if not init_
+        if not init_data: # ИСПРАВЛЕНО: полное имя переменной
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
