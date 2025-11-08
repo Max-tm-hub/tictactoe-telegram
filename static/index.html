@@ -79,7 +79,15 @@
             cursor: not-allowed;
             opacity: 0.6;
         }
-        /* #closeGameBtn больше не существует */
+        #closeGameBtn {
+            background-color: #f44336; /* Красный */
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
         #chatBox {
             margin-top: 20px;
             max-width: 400px;
@@ -145,7 +153,7 @@
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
     <button id="restartGameBtn" style="display: none;">Новая игра</button>
-    <!-- --- ИСПРАВЛЕНО: Удалена кнопка closeGameBtn --- -->
+    <button id="closeGameBtn" style="display: none;">Закрыть игру</button>
     <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
         <input id="chatInput" type="text" maxlength="100" placeholder="Напишите сообщение...">
@@ -185,7 +193,7 @@
         const copyLinkBtn = document.getElementById('copyLinkBtn');
         const startGameBtn = document.getElementById('startGameBtn');
         const restartGameBtn = document.getElementById('restartGameBtn');
-        // const closeGameBtn = document.getElementById('closeGameBtn'); // Удалено
+        const closeGameBtn = document.getElementById('closeGameBtn');
         const chatInput = document.getElementById('chatInput');
         const sendBtn = document.getElementById('sendBtn');
         const chatMessages = document.getElementById('chatMessages');
@@ -438,7 +446,7 @@
             }
         }
 
-        // --- ИСПРАВЛЕНО: closeGameBtn больше не существует, функция closeGame теперь вызывается напрямую или через другие события ---
+        // --- ИСПРАВЛЕНО: closeGameBtn теперь вызывает closeGame ---
         async function closeGame() {
             console.log("closeGame вызвана. gameId:", gameId);
             // Убран вызов /api/end-game
@@ -524,7 +532,7 @@
 
             // --- ИСПРАВЛЕНО: показываем/скрываем кнопки ---
             restartGameBtn.style.display = isCreator ? 'inline-block' : 'none'; // --- ИСПРАВЛЕНО: скрываем для второго игрока ---
-            // closeGameBtn.style.display = 'inline-block'; // Удалено
+            closeGameBtn.style.display = 'inline-block';
 
             // --- ИСПРАВЛЕНО: делаем кнопку "Новая игра" активной/неактивной (теперь только для создателя) ---
             if (isCreator) {
@@ -559,29 +567,27 @@
                 statusDiv.textContent = `Победил(а) ${winnerName}!`;
             } else if (!gameData.opponent_id) {
                 statusDiv.textContent = "Ожидание второго игрока...";
-                startGameBtn.style.display = 'none'; // Кнопка "Начать игру" не нужна создателю до присоединения
+                startGameBtn.style.display = 'none';
                 boardDiv.style.display = 'none';
-                inviteLinkDiv.style.display = 'block';
-                copyLinkBtn.style.display = 'block';
+                inviteLinkDiv.style.display = 'block'; // Показываем ссылку, если нет оппонента
+                copyLinkBtn.style.display = 'block';   // Показываем кнопку копирования
             } else if (!gameData.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
-                startGameBtn.style.display = 'none'; // Сначала скрываем
                 boardDiv.style.display = 'none';
-                inviteLinkDiv.style.display = 'none';
-                copyLinkBtn.style.display = 'none';
-                if (!isCreator) { // --- ВОССТАНОВЛЕНО: логика из оригинального кода ---
-                    startGameBtn.style.display = 'inline-block'; // Только второй игрок видит "Начать игру"
+                inviteLinkDiv.style.display = 'none'; // Скрываем ссылку, когда оппонент есть
+                copyLinkBtn.style.display = 'none';   // Скрываем кнопку копирования
+                if (!isCreator) {
+                    startGameBtn.style.display = 'inline-block';
                 } else {
-                    startGameBtn.style.display = 'none'; // Создатель не видит "Начать игру"
+                    startGameBtn.style.display = 'none';
                 }
             } else {
                 statusDiv.textContent = "Игра началась!";
                 startGameBtn.style.display = 'none';
                 boardDiv.style.display = 'grid';
-                inviteLinkDiv.style.display = 'none';
-                copyLinkBtn.style.display = 'none';
-
-                boardDiv.innerHTML = '';
+                inviteLinkDiv.style.display = 'none'; // Скрываем ссылку, когда игра началась
+                copyLinkBtn.style.display = 'none';   // Скрываем кнопку копирования
+                // ... (логика отрисовки доски и ходов) ...
                 for (let i = 0; i < 3; i++) {
                     for (let j = 0; j < 3; j++) {
                         const cell = document.createElement('div');
@@ -682,7 +688,8 @@
 
         startGameBtn.onclick = startGame;
         restartGameBtn.onclick = restartGame;
-        // closeGameBtn.onclick = closeGame; // Удалено
+        // --- ИСПРАВЛЕНО: closeGameBtn.onclick теперь вызывает closeGame ---
+        closeGameBtn.onclick = closeGame;
 
         // --- ИСПРАВЛЕНО: sendBtn.onclick использует глобальный chatWs ---
         sendBtn.onclick = () => {
