@@ -251,7 +251,7 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
         logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
     finally:
         # Удаляем данные пользователя при отключении
-        if websocket in chat_user_
+        if websocket in chat_user_data:
             del chat_user_data[websocket]
 
 async def broadcast_game_update(game_id: str):
