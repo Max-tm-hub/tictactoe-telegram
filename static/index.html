@@ -152,7 +152,7 @@
     <div id="inviteLink"></div>
     <button id="copyLinkBtn" style="display: none;">Скопировать ссылку</button>
     <button id="startGameBtn" style="display: none;">Начать игру</button>
-    <button id="restartGameBtn" style="display: none;">Новая игра</button>
+    <button id="restartGameBtn" style="display: none;">Новая игра</button> <!-- Текст изменится при неактивности -->
     <button id="closeGameBtn" style="display: none;">Закрыть игру</button>
     <div id="chatBox" style="display: none;">
         <div id="chatMessages"></div>
@@ -530,16 +530,19 @@
             const myId = String(user.id);
             const isCreator = myId === String(gameData.creator_id);
 
-            // --- ИСПРАВЛЕНО: показываем/скрываем кнопки ---
-            restartGameBtn.style.display = isCreator ? 'inline-block' : 'none'; // --- ИСПРАВЛЕНО: скрываем для второго игрока ---
+            // --- ИСПРАВЛЕНО: показываем кнопки ---
+            restartGameBtn.style.display = 'inline-block';
             closeGameBtn.style.display = 'inline-block';
 
-            // --- ИСПРАВЛЕНО: делаем кнопку "Новая игра" активной/неактивной (теперь только для создателя) ---
+            // --- ИСПРАВЛЕНО: делаем кнопку "Новая игра" активной/неактивной ---
             if (isCreator) {
                 restartGameBtn.classList.remove('inactive');
                 restartGameBtn.disabled = false;
+                restartGameBtn.textContent = "Новая игра"; // Текст для создателя
             } else {
-                // Логика для второго игрока больше не нужна, так как кнопка скрыта
+                restartGameBtn.classList.add('inactive');
+                restartGameBtn.disabled = true;
+                restartGameBtn.textContent = "Недоступно"; // Текст для второго игрока
             }
 
             let boardToRender = gameData.board;
@@ -569,13 +572,13 @@
                 statusDiv.textContent = "Ожидание второго игрока...";
                 startGameBtn.style.display = 'none';
                 boardDiv.style.display = 'none';
-                inviteLinkDiv.style.display = 'block'; // Показываем ссылку, если нет оппонента
-                copyLinkBtn.style.display = 'block';   // Показываем кнопку копирования
+                inviteLinkDiv.style.display = 'block';
+                copyLinkBtn.style.display = 'block';
             } else if (!gameData.game_started) {
                 statusDiv.textContent = "Ожидание начала игры...";
                 boardDiv.style.display = 'none';
-                inviteLinkDiv.style.display = 'none'; // Скрываем ссылку, когда оппонент есть
-                copyLinkBtn.style.display = 'none';   // Скрываем кнопку копирования
+                inviteLinkDiv.style.display = 'none';
+                copyLinkBtn.style.display = 'none';
                 if (!isCreator) {
                     startGameBtn.style.display = 'inline-block';
                 } else {
@@ -585,9 +588,10 @@
                 statusDiv.textContent = "Игра началась!";
                 startGameBtn.style.display = 'none';
                 boardDiv.style.display = 'grid';
-                inviteLinkDiv.style.display = 'none'; // Скрываем ссылку, когда игра началась
-                copyLinkBtn.style.display = 'none';   // Скрываем кнопку копирования
-                // ... (логика отрисовки доски и ходов) ...
+                inviteLinkDiv.style.display = 'none';
+                copyLinkBtn.style.display = 'none';
+
+                boardDiv.innerHTML = '';
                 for (let i = 0; i < 3; i++) {
                     for (let j = 0; j < 3; j++) {
                         const cell = document.createElement('div');
