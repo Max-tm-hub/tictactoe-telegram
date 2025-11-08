@@ -251,7 +251,7 @@ async def chat_websocket(websocket: WebSocket, game_id: str):
         logger.error(f"Ошибка WebSocket чата для игры {game_id}: {e}")
     finally:
         # Удаляем данные пользователя при отключении
-        if websocket in chat_user_data:
+        if websocket in chat_user_
             del chat_user_data[websocket]
 
 async def broadcast_game_update(game_id: str):
@@ -481,11 +481,11 @@ async def restart_game(request: Request):
 async def get_stats(request: Request):
     try:
         init_data = request.headers.get("X-Init-Data")
-        if not init_data:
+        if not init_
             raise HTTPException(status_code=400, detail="Отсутствует X-Init-Data")
         user = validate_init_data(init_data, BOT_TOKEN)
         res = supabase.table("stats").select("*").eq("user_id", user["id"]).execute()
-        if res.data:
+        if res.
             return res.data[0]
         return {
             "user_id": user["id"],
